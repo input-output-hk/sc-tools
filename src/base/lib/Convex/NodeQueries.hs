@@ -29,6 +29,7 @@ module Convex.NodeQueries (
   runEraQuery,
   queryEpoch,
   queryLocalState,
+  queryLedgerState,
   queryProtocolParameters,
   queryFuturePParams,
   queryStakeAddresses,
@@ -37,11 +38,6 @@ module Convex.NodeQueries (
   queryUTxOFilter,
 ) where
 
-import Cardano.Api (
-  PoolId,
-  StakeAddress,
-  StakeCredential,
- )
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental (Era)
 import Cardano.Api.Experimental qualified as C.Experimental
@@ -234,6 +230,11 @@ queryLocalState query connectInfo = do
       throwIO $ QueryAcquireException $ show err
     Right result -> pure result
 
+queryLedgerState :: forall era. (C.IsShelleyBasedEra era) => C.LocalNodeConnectInfo -> IO (C.DebugLedgerState era)
+queryLedgerState connectInfo =
+  runEraQuery connectInfo $
+    EraQuery{eqQuery = C.QueryDebugLedgerState, eqResult = either (error . show) id . C.decodeDebugLedgerState}
+
 -- TODO: Add missing queries from Convex.Devnet.NodeQueries
 
 -- | Era-specific query with an era-independent result
@@ -283,7 +284,7 @@ queryFuturePParams connectInfo =
   Throws 'QueryException' if the node's era is not supported or if the connection
   to the node cannot be acquired
 -}
-queryStakeAddresses :: C.LocalNodeConnectInfo -> Set StakeCredential -> IO (Map StakeAddress C.Quantity, Map StakeAddress PoolId)
+queryStakeAddresses :: C.LocalNodeConnectInfo -> Set C.StakeCredential -> IO (Map C.StakeAddress C.Quantity, Map C.StakeAddress C.PoolId)
 queryStakeAddresses info creds = do
   let C.LocalNodeConnectInfo{C.localNodeNetworkId} = info
   queryInSupportedEra info $ \case
@@ -293,7 +294,7 @@ queryStakeAddresses info creds = do
   Throws 'QueryException' if the node's era is not supported or if the connection
   to the node cannot be acquired
 -}
-queryStakePools :: C.LocalNodeConnectInfo -> IO (Set PoolId)
+queryStakePools :: C.LocalNodeConnectInfo -> IO (Set C.PoolId)
 queryStakePools connectInfo = queryInSupportedEra connectInfo $ \case
   C.Experimental.ConwayEra -> EraQuery{eqQuery = C.QueryStakePools, eqResult = id}
 
@@ -301,7 +302,7 @@ queryStakePools connectInfo = queryInSupportedEra connectInfo $ \case
   Throws 'QueryException' if the node's era is not supported or if the connection
   to the node cannot be acquired.
 -}
-queryStakeVoteDelegatees :: C.LocalNodeConnectInfo -> Set StakeCredential -> IO (Map StakeCredential (Ledger.DRep))
+queryStakeVoteDelegatees :: C.LocalNodeConnectInfo -> Set C.StakeCredential -> IO (Map C.StakeCredential Ledger.DRep)
 queryStakeVoteDelegatees info creds = do
   queryInSupportedEra info $ \case
     C.Experimental.ConwayEra -> EraQuery{eqQuery = C.QueryStakeVoteDelegatees creds, eqResult = id}

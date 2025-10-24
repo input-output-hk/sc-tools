@@ -39,6 +39,7 @@ import Cardano.Api (
   toShelleyPoolParams,
  )
 import Cardano.Api qualified as C
+import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Conway.TxCert qualified as L
 import Cardano.Slotting.Slot (withOriginToMaybe)
 import Cardano.Slotting.Time (
@@ -49,7 +50,8 @@ import Cardano.Slotting.Time (
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
 import Control.Exception (finally, throwIO)
-import Control.Monad (unless, when, (>=>))
+import Control.Lens ((^.))
+import Control.Monad (unless, void, when, (>=>))
 import Control.Monad.Except (runExceptT)
 import Control.Tracer (Tracer, traceWith)
 import Convex.BuildTx (
@@ -537,9 +539,9 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
 
   C.SlotNo slotNo <- fst <$> Q.queryTipSlotNo rnConnectInfo
 
-  let
-    minDeposit = 500_000_000
+  pp <- Q.queryProtocolParameters rnConnectInfo
 
+  let
     vrfHash =
       C.verificationKeyHash . C.getVerificationKey $ vrfKey
 
@@ -550,7 +552,7 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
 
     stakeCert =
       C.makeStakeAddressRegistrationCertificate
-        . StakeAddrRegistrationConway C.ConwayEraOnwardsConway minDeposit
+        . StakeAddrRegistrationConway C.ConwayEraOnwardsConway (pp ^. Ledger.ppKeyDepositL)
         $ stakeCred
     stakeAddress = C.makeStakeAddress rnNetworkId stakeCred
 
@@ -616,14 +618,19 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
     delegCertTx = execBuildTx $ do
       addCertificate delegationCert
 
-  _ <- W.balanceAndSubmit mempty node wallet stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
-  _ <- waitForNextBlock node
+  txSubmissionResults <-
+    runExceptT $ do
+      void $ C.ExceptT $ W.balanceAndSubmit mempty node wallet stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
+      void $ C.lift $ waitForNextBlock node
 
-  _ <- W.balanceAndSubmit mempty node wallet poolCertTx TrailingChange [C.WitnessStakeKey stakeKey, C.WitnessStakePoolKey stakePoolKey]
-  _ <- waitForNextBlock node
+      void $ C.ExceptT $ W.balanceAndSubmit mempty node wallet poolCertTx TrailingChange [C.WitnessStakeKey stakeKey, C.WitnessStakePoolKey stakePoolKey]
+      void $ C.lift $ waitForNextBlock node
 
-  _ <- W.balanceAndSubmit mempty node wallet delegCertTx TrailingChange [C.WitnessStakeKey stakeKey]
-  _ <- waitForNextBlock node
+      void $ C.ExceptT $ W.balanceAndSubmit mempty node wallet delegCertTx TrailingChange [C.WitnessStakeKey stakeKey]
+      void $ C.lift $ waitForNextBlock node
+  case txSubmissionResults of
+    Left err -> error $ show err
+    Right _ -> pure ()
 
   vrfKeyFile <- writeEnvelope vrfKey "vrf.skey"
   kesKeyFile <- writeEnvelope kesKey "kes.skey"

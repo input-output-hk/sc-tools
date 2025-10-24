@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module Convex.Devnet.CardanoNode.Types (
   Port,
@@ -15,6 +14,7 @@ module Convex.Devnet.CardanoNode.Types (
   -- * Genesis config changes
   GenesisConfigChanges (..),
   allowLargeTransactions,
+  defaultConfigFastRewardDistribution,
   setEpochLength,
 ) where
 
@@ -30,13 +30,17 @@ import Cardano.Api (
   StakePoolKey,
   VrfKey,
  )
+import Cardano.Api qualified as C
+import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.BaseTypes (EpochSize)
+import Cardano.Ledger.BaseTypes qualified as Ledger
 import Cardano.Ledger.Core qualified as Core
 import Cardano.Ledger.Shelley.API (Coin)
 import Cardano.Ledger.Shelley.Genesis (ShelleyGenesis (..))
 import Control.Lens (over)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson qualified as Aeson
+import Data.Maybe (fromJust)
 import Data.Ratio ((%))
 import GHC.Generics (Generic)
 import Ouroboros.Consensus.Shelley.Eras (ShelleyEra)
@@ -76,7 +80,7 @@ data RunningNode = RunningNode
 -- | Describes a running stake pool node
 data RunningStakePoolNode = RunningStakePoolNode
   { rspnNode :: RunningNode
-  -- ^ Running ardano node
+  -- ^ Running Cardano node
   , rspnStakeKey :: SigningKey StakeKey
   , rspnVrfKey :: SigningKey VrfKey
   , rspnKesKey :: SigningKey KesKey
@@ -131,8 +135,44 @@ allowLargeTransactions :: GenesisConfigChanges
 allowLargeTransactions =
   let change :: ShelleyGenesis -> ShelleyGenesis
       change g = g{sgProtocolParams = double (sgProtocolParams g)}
-      double :: Core.PParams (ShelleyEra) -> Core.PParams (ShelleyEra)
+      double :: Core.PParams ShelleyEra -> Core.PParams ShelleyEra
       double = over (Core.ppLens . Core.hkdMaxTxSizeL) (* 2)
+   in mempty{cfShelley = change}
+
+{- | Change the shelley genesis config in such as way that it enables reward
+distribution for stake pools which mint blocks for testing purposes. It makes
+the epoch length as short as possible for faster testing runtime.
+
+In order to get rewards at each epoch, a few constraints must be satisfied.
+
+TLDR: You *must* allow sufficient computation time for cardano-ledger to
+compute stake pool rewards after each epoch. If epochs go by too fast,
+rewards will always be 0.
+
+Here are the constraints themselves. First, epoch length is typically equal
+to `10K/f` where `K` is `securityParam` and `f` is `activeSlotsCoeff`.
+Second, the node/ledger needs actual computation time to calculate rewards in
+first 4k/f slots of an epoch (assuming each slot is 1s). If we reduce slot
+length in order to speed up the devnet, we must unfortunatelly increase the
+epoch length and `K` parameters. Third, by setting `f` to 1, we introduce
+lots of collisions between nodes which triggers lots of forks. Not mandatory
+for this test, but it makes it easier to reason about the adequate slot
+length for getting rewards.
+
+This default `GenesisConfigChanges` provides a good starting for enabling
+rewards, but can be tweaked based on requirements on how the devnet should
+behave.
+-}
+defaultConfigFastRewardDistribution :: GenesisConfigChanges
+defaultConfigFastRewardDistribution =
+  let change :: ShelleyGenesis -> ShelleyGenesis
+      change g =
+        g
+          { C.sgEpochLength = Ledger.EpochSize 100
+          , C.sgSlotLength = 0.1
+          , C.sgSecurityParam = Ledger.unsafeNonZero 10
+          , C.sgActiveSlotsCoeff = fromJust $ Ledger.boundRational 1.0
+          }
    in mempty{cfShelley = change}
 
 {- | Set the epoch length in the shelley genesis configuration. Note that the parameter is a multiple of

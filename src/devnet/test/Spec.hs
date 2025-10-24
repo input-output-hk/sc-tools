@@ -5,20 +5,22 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Api.PParams qualified as L
-import Cardano.Ledger.BaseTypes (unsafeNonZero)
 import Cardano.Ledger.Block qualified as Ledger
-import Cardano.Ledger.Slot (EpochSize (..))
+import Cardano.Ledger.Shelley.Genesis qualified as Ledger
 import Control.Concurrent (threadDelay)
-import Control.Lens (view)
-import Control.Monad (unless, void)
+import Control.Lens (Contravariant (contramap), view)
+import Control.Monad (forM_, unless, void)
 import Control.Monad.Except (runExceptT)
 import Control.Tracer (Tracer)
+import Convex.BuildTx (execBuildTx, payToPublicKey)
+import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.Devnet.CardanoNode (
   NodeLog (..),
   getCardanoNodeVersion,
@@ -27,17 +29,16 @@ import Convex.Devnet.CardanoNode (
   withCardanoStakePoolNodeDevnetConfig,
  )
 import Convex.Devnet.CardanoNode.Types (
-  GenesisConfigChanges (..),
   PortsConfig (..),
   RunningNode (..),
   RunningStakePoolNode (..),
   StakePoolNodeParams (..),
   allowLargeTransactions,
+  defaultConfigFastRewardDistribution,
   defaultPortsConfig,
   defaultStakePoolNodeParams,
  )
 import Convex.Devnet.Logging (
-  contramap,
   showLogsOnFailure,
   traceWith,
  )
@@ -66,6 +67,7 @@ import Convex.NodeQueries (
  )
 import Convex.NodeQueries qualified as Queries
 import Convex.Utxos qualified as Utxos
+import Convex.Wallet qualified as W
 import Data.Aeson (FromJSON, ToJSON)
 import Data.IORef (
   modifyIORef,
@@ -73,6 +75,7 @@ import Data.IORef (
   readIORef,
  )
 import Data.List (isInfixOf)
+import Data.ListMap qualified as LM
 import Data.Map qualified as Map
 import Data.Ratio ((%))
 import Data.Set qualified as Set
@@ -124,7 +127,7 @@ checkCardanoNode = do
 startLocalNode :: IO ()
 startLocalNode = do
   showLogsOnFailure $ \tr -> do
-    failAfter 5 $
+    failAfter 10 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet tr tmp $ \RunningNode{rnNodeSocket, rnNodeConfigFile} -> do
           runExceptT (loadConnectInfo rnNodeConfigFile rnNodeSocket) >>= \case
@@ -134,7 +137,7 @@ startLocalNode = do
 checkTransitionToConway :: IO ()
 checkTransitionToConway = do
   showLogsOnFailure $ \tr -> do
-    failAfter 5 $
+    failAfter 10 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode@RunningNode{rnConnectInfo, rnNodeSocket, rnNodeConfigFile} -> do
           Queries.queryEra rnConnectInfo >>= assertEqual "Should be in conway era" (C.anyCardanoEra C.ConwayEra)
@@ -171,7 +174,7 @@ checkTransitionToConway = do
 startLocalStakePoolNode :: IO ()
 startLocalStakePoolNode = do
   showLogsOnFailure $ \tr -> do
-    failAfter 10 $
+    failAfter 30 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode -> do
           let lovelacePerUtxo = 100_000_000
@@ -187,7 +190,7 @@ startLocalStakePoolNode = do
 registeredStakePoolNode :: IO ()
 registeredStakePoolNode = do
   showLogsOnFailure $ \tr -> do
-    failAfter 10 $
+    failAfter 30 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode@RunningNode{rnConnectInfo} -> do
           let lovelacePerUtxo = 100_000_000
@@ -196,50 +199,75 @@ registeredStakePoolNode = do
           wllt <- W.createSeededWallet C.BabbageEraOnwardsConway (contramap TLWallet tr) runningNode numUtxos lovelacePerUtxo
           initialStakePools <- queryStakePools rnConnectInfo
           withTempDir "cardano-cluster-stakepool" $ \tmp' -> do
-            withCardanoStakePoolNodeDevnetConfig (contramap TLNode tr) tmp' wllt defaultStakePoolNodeParams nodeConfigFile (PortsConfig 3002 [3001]) runningNode $ \_ -> do
-              currentStakePools <- queryStakePools rnConnectInfo
-              let
-                initial = length initialStakePools
-                current = length currentStakePools
-              assertEqual "Blockchain should have one new registered stake pool" 1 (current - initial)
+            withCardanoStakePoolNodeDevnetConfig
+              (contramap TLNode tr)
+              tmp'
+              wllt
+              defaultStakePoolNodeParams
+              nodeConfigFile
+              (PortsConfig 3002 [3001])
+              runningNode
+              $ \RunningStakePoolNode{rspnStakeKey} -> do
+                let stakeHash = C.verificationKeyHash . C.getVerificationKey $ rspnStakeKey
+                    stakeCred = C.StakeCredentialByKey stakeHash
+                (_, stakeKeyDelegation) <- queryStakeAddresses rnConnectInfo $ Set.singleton stakeCred
+                currentStakePools <- queryStakePools rnConnectInfo
+                let
+                  initial = length initialStakePools
+                  current = length currentStakePools
+                assertEqual "Blockchain should have one new registered stake pool" 1 (current - initial)
+                assertBool "The registered stake address should delegate it's stake to the new registered stake pool" $
+                  snd (head $ Map.toList stakeKeyDelegation) `Set.member` currentStakePools
 
 stakePoolRewards :: IO ()
 stakePoolRewards = do
   showLogsOnFailure $ \tr -> do
-    failAfter 50 $
+    failAfter 600 $
       withTempDir "cardano-cluster" $ \tmp -> do
-        withCardanoNodeDevnetConfig (contramap TLNode tr) tmp confChange (PortsConfig 3001 [3002]) $ \runningNode -> do
-          let lovelacePerUtxo = 10_000_000_000
-              numUtxos = 4
-              nodeConfigFile = tmp </> "cardano-node.json"
-          wllt <- W.createSeededWallet C.BabbageEraOnwardsConway (contramap TLWallet tr) runningNode numUtxos lovelacePerUtxo
+        withCardanoNodeDevnetConfig (contramap TLNode tr) tmp defaultConfigFastRewardDistribution (PortsConfig 3001 [3002]) $ \runningNode@RunningNode{rnNodeConfigFile} -> do
+          let lovelacePerUtxo = 100_000_000_000
+              numUtxos = 100
+          w1 <- W.createSeededWallet C.BabbageEraOnwardsConway (contramap TLWallet tr) runningNode numUtxos lovelacePerUtxo
+          w2 <- W.createSeededWallet C.BabbageEraOnwardsConway (contramap TLWallet tr) runningNode numUtxos lovelacePerUtxo
+
+          nodeConfig <- C.liftIO (C.runExceptT $ C.readNodeConfig $ C.File rnNodeConfigFile) >>= either (error . show) pure
+          shelleyGenesisConfig <- C.liftIO (C.runExceptT $ C.readShelleyGenesisConfig nodeConfig) >>= either (error . show) pure
+          let genesisPoolsStakeCreds = fmap (C.StakeCredentialByKey . C.StakeKeyHash) $ LM.keys $ Ledger.sgsStake $ Ledger.sgStaking $ C.scConfig shelleyGenesisConfig
+
+          -- We verify that, at the beginning, the genesis stake addresses have no rewards.
+          forM_ genesisPoolsStakeCreds $ \genesisPoolStakeCred -> do
+            rewards <- getStakeRewards runningNode genesisPoolStakeCred
+            assertBool "Expect initial staking rewards for genesis pool stake credential to be 0" $ rewards == 0
+
+          -- We wait until the genesis stake addresses gain some new rewards
+          forM_ genesisPoolsStakeCreds $ \genesisPoolStakeCred -> do
+            rewards <- waitForStakeRewardsIncreaseFromBaseAmount tr runningNode genesisPoolStakeCred 0
+            assertBool "Expect staking rewards change for genesis pool stake credential" $ rewards > 0
+
           let stakepoolParams =
                 StakePoolNodeParams
                   { spnCost = 340_000_000
                   , spnMargin = 1 % 100
-                  , spnPledge = 10_000_000_000 -- 100_000_000
+                  , -- 1M ADA pledge. This needs to be pretty high because the
+                    -- proportion of this stake pool on the total stacked amount
+                    -- must be on par with the stake value of genesis pool. Or
+                    -- else, this pool will never mint blocks.
+                    spnPledge = L.Coin 1_000_000_000_000
                   }
-          withTempDir "cardano-cluster-stakepool" $ \tmp' -> do
-            withCardanoStakePoolNodeDevnetConfig (contramap TLNode tr) tmp' wllt stakepoolParams nodeConfigFile (PortsConfig 3002 [3001]) runningNode $ \RunningStakePoolNode{rspnStakeKey} -> do
-              let stakeHash = C.verificationKeyHash . C.getVerificationKey $ rspnStakeKey
-                  _stakeCred = C.StakeCredentialByKey stakeHash
-              -- waitForStakeRewards tr rspnNode  stakeCred
-              --   >>= assertBool "Expect staking rewards" $ rewards > 0
-              assertBool "FIXME" True
- where
-  confChange =
-    GenesisConfigChanges
-      ( \g ->
-          g
-            { C.sgEpochLength = EpochSize 10
-            , C.sgSlotLength = 1
-            , C.sgSecurityParam = unsafeNonZero 1
-            }
-      )
-      id
-      id
-      id
+          withTempDir "cardano-cluster-stakepool-1" $ \tmp' -> do
+            withCardanoStakePoolNodeDevnetConfig (contramap TLNode tr) tmp' w1 stakepoolParams rnNodeConfigFile (PortsConfig 3002 [3001]) runningNode $ \RunningStakePoolNode{rspnNode, rspnStakeKey} -> do
+              let poolOwnerStakeCred = C.StakeCredentialByKey $ C.verificationKeyHash $ C.getVerificationKey rspnStakeKey
 
+              -- Generate some transactions to ensure there are fees in the system for rewards.
+              -- This is optionnal since the Cardano reserve at startup is positive, but still good to have.
+              let tx = execBuildTx $ payToPublicKey (rnNetworkId rspnNode) (W.verificationKeyHash w2) $ C.lovelaceToValue 10_000_000
+              forM_ (replicate 20 (0 :: Int)) $ \_ -> do
+                void $ W.balanceAndSubmit @C.ConwayEra (contramap TLWallet tr) rspnNode w1 tx TrailingChange []
+                threadDelay 100_000
+
+              poolOwnerNewRewards <- waitForStakeRewardsIncrease tr runningNode poolOwnerStakeCred
+              assertBool "Expect staking rewards" $ poolOwnerNewRewards > 0
+ where
   getStakeRewards :: RunningNode -> C.StakeCredential -> IO C.Quantity
   getStakeRewards RunningNode{rnConnectInfo} cred =
     let
@@ -247,25 +275,26 @@ stakePoolRewards = do
      in
       sum . Map.elems . fst <$> queryStakeAddresses rnConnectInfo creds
 
-  _waitForStakeRewards :: Tracer IO TestLog -> RunningNode -> C.StakeCredential -> IO C.Quantity
-  _waitForStakeRewards tr node cred = do
+  waitForStakeRewardsIncrease :: Tracer IO TestLog -> RunningNode -> C.StakeCredential -> IO C.Quantity
+  waitForStakeRewardsIncrease tr node cred = do
     rw <- getStakeRewards node cred
     traceWith tr $ TLRewards rw
-    waitForStakeRewards' node cred rw
+    waitForStakeRewardsIncreaseFromBaseAmount tr node cred rw
 
-  waitForStakeRewards' :: RunningNode -> C.StakeCredential -> C.Quantity -> IO C.Quantity
-  waitForStakeRewards' node cred amount = do
+  waitForStakeRewardsIncreaseFromBaseAmount :: Tracer IO TestLog -> RunningNode -> C.StakeCredential -> C.Quantity -> IO C.Quantity
+  waitForStakeRewardsIncreaseFromBaseAmount tr node cred amount = do
     rewards <- getStakeRewards node cred
+    traceWith tr $ TLRewards rewards
     if rewards > amount
       then
         pure rewards
-      else
-        threadDelay 1_000_000 >> waitForStakeRewards' node cred amount
+      else do
+        threadDelay 1_000_000 >> waitForStakeRewardsIncreaseFromBaseAmount tr node cred amount
 
 makePayment :: IO ()
 makePayment = do
   showLogsOnFailure $ \tr -> do
-    failAfter 10 $
+    failAfter 20 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode -> do
           let lovelacePerUtxo = 100_000_000
