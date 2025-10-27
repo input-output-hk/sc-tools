@@ -212,3 +212,6 @@ sendFundsToOperator :: Tracer IO WalletLog -> RunningNode -> Operator k -> Quant
 sendFundsToOperator tr node@RunningNode{rnNetworkId} op lvl = do
   let opAddress = operatorAddress rnNetworkId op
   Wallet.sendFaucetFundsTo (contramap WWallet tr) node (C.AddressInEra (C.ShelleyAddressInEra C.ShelleyBasedEraConway) opAddress) 10 lvl
+    >>= \case
+      Left err -> error $ show err
+      Right tx -> pure tx

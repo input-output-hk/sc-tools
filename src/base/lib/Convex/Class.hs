@@ -262,7 +262,7 @@ class (Monad m) => MonadBlockchain era m | m -> era where
 
   queryStakeVoteDelegatees
     :: Set C.StakeCredential
-    -> m (Map C.StakeCredential (Ledger.DRep))
+    -> m (Map C.StakeCredential Ledger.DRep)
     -- ^ Get the delegatees of the stake addresses
 
   querySystemStart :: m SystemStart
@@ -297,7 +297,7 @@ class (Monad m) => MonadBlockchain era m | m -> era where
   default queryStakeVoteDelegatees
     :: (MonadTrans t, m ~ t n, MonadBlockchain era n)
     => Set C.StakeCredential
-    -> m (Map C.StakeCredential (Ledger.DRep))
+    -> m (Map C.StakeCredential Ledger.DRep)
   queryStakeVoteDelegatees = lift . queryStakeVoteDelegatees
 
   default querySystemStart :: (MonadTrans t, m ~ t n, MonadBlockchain era n) => m SystemStart

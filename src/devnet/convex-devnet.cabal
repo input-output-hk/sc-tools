@@ -60,29 +60,34 @@ library
 
   hs-source-dirs:  lib
   build-depends:
-    , aeson
-    , async
-    , base                         >=4.14.0
-    , bytestring
-    , cardano-api
-    , cardano-ledger-conway
-    , cardano-ledger-core
-    , cardano-ledger-shelley
-    , cardano-slotting
-    , contra-tracer
     , convex-base
     , convex-coin-selection
     , convex-optics
     , convex-wallet
+
+  build-depends:
+    , cardano-api
+    , cardano-ledger-api
+    , cardano-ledger-conway
+    , cardano-ledger-core
+    , cardano-ledger-shelley
+    , cardano-slotting
+    , iohk-monitoring
+    , ouroboros-consensus-cardano
+
+  build-depends:
+    , aeson
+    , async
+    , base                 >=4.14.0
+    , bytestring
+    , contra-tracer
     , directory
     , filepath
     , http-client
     , HUnit
     , io-classes
-    , iohk-monitoring
     , lens
     , mtl
-    , ouroboros-consensus-cardano
     , prettyprinter
     , process
     , servant-client
@@ -120,8 +125,10 @@ test-suite convex-devnet-test
 
   build-depends:
     , cardano-api
+    , cardano-data
     , cardano-ledger-api
     , cardano-ledger-core
+    , cardano-ledger-shelley
     , ouroboros-consensus-cardano
     , ouroboros-consensus-protocol
     , plutus-core

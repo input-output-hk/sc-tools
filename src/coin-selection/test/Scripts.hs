@@ -17,7 +17,6 @@ module Scripts (
   mintMatchingIndex,
 ) where
 
-import Cardano.Api (TxIn)
 import Cardano.Api qualified as C
 import Convex.BuildTx (MonadBuildTx)
 import Convex.BuildTx qualified as BuildTx
@@ -58,7 +57,7 @@ matchingIndexMPScript = compiledCodeToScript matchingIndexMPCompiled
 {- | Spend an output locked by 'matchingIndexValidatorScript', setting
 the redeemer to the index of the input in the final transaction
 -}
-spendMatchingIndex :: forall era m. (C.IsAlonzoBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => (MonadBuildTx era m) => TxIn -> m ()
+spendMatchingIndex :: forall era m. (C.IsAlonzoBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => (MonadBuildTx era m) => C.TxIn -> m ()
 spendMatchingIndex txi =
   let witness txBody =
         C.ScriptWitness C.ScriptWitnessForSpending $
