@@ -24,7 +24,10 @@ import PlutusCore.Version qualified as Version
 import PlutusTx (CompiledCode)
 import PlutusTx qualified
 import PlutusTx.Builtins.Internal qualified as BI
+import PlutusTx.Plugin ()
 import PlutusTx.Prelude qualified as PlutusTx
+
+-- PlutusTx.Plugin() is a "fake" import to prevent -Werror complaining about the plutustx plugin build-depend in .cabal.
 
 {-# INLINEABLE readBitTestMintingPolicy #-}
 readBitTestMintingPolicy :: PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinUnit

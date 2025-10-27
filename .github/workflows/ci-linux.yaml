@@ -44,6 +44,6 @@ jobs:
 
       - name: build & test
         run: |
-          cabal build -j all
-          cabal test all
+          cabal build --ghc-options=-Werror -j all
+          cabal test --ghc-options=-Werror all
 

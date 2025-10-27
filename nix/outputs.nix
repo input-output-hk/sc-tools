@@ -44,8 +44,11 @@ let
 in
 
 {
-  inherit packages;
   inherit devShells;
   inherit hydraJobs;
+  inherit (projectFlake) apps;
+  inherit (projectFlake) packages;
+  # Explore the project via nix repl '.#'
+  project = project;
 }
 

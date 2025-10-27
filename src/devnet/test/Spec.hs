@@ -7,6 +7,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- To pattern-match on the C.ShelleyBlock
+{-# OPTIONS_GHC -Wno-deprecations #-}
+
 module Main where
 
 import Cardano.Api qualified as C
