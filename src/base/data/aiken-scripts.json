@@ -1,0 +1,58 @@
+{
+  "preamble": {
+    "title": "wsc-poc/aiken-policy",
+    "description": "Aiken contracts for project 'wsc-poc/aiken-policy'",
+    "version": "0.0.0",
+    "plutusVersion": "v3",
+    "compiler": {
+      "name": "Aiken",
+      "version": "v1.1.9+unknown"
+    },
+    "license": "Apache-2.0"
+  },
+  "validators": [
+    {
+      "title": "transfer.issue.withdraw",
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/Int"
+        }
+      },
+      "compiledCode": "5857010100323232323225333002323232323253330073370e900218041baa0011323370e6eb400d20c801300a300937540022940c024c02800cc020008c01c008c01c004c010dd50008a4c26cacae6955ceaab9e5742ae881",
+      "hash": "0f8107a024cfbc7e5e787d67acddcec748ceb280fcc4b14c305e6a2d"
+    },
+    {
+      "title": "transfer.issue.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "compiledCode": "5857010100323232323225333002323232323253330073370e900218041baa0011323370e6eb400d20c801300a300937540022940c024c02800cc020008c01c008c01c004c010dd50008a4c26cacae6955ceaab9e5742ae881",
+      "hash": "0f8107a024cfbc7e5e787d67acddcec748ceb280fcc4b14c305e6a2d"
+    },
+    {
+      "title": "transfer.transfer.withdraw",
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/Int"
+        }
+      },
+      "compiledCode": "5857010100323232323225333002323232323253330073370e900218041baa0011323370e6eb400d209003300a300937540022940c024c02800cc020008c01c008c01c004c010dd50008a4c26cacae6955ceaab9e5742ae881",
+      "hash": "17e9e9e3412e7198877557fab1181f394ed36cf5db27b418d3f68990"
+    },
+    {
+      "title": "transfer.transfer.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "compiledCode": "5857010100323232323225333002323232323253330073370e900218041baa0011323370e6eb400d209003300a300937540022940c024c02800cc020008c01c008c01c004c010dd50008a4c26cacae6955ceaab9e5742ae881",
+      "hash": "17e9e9e3412e7198877557fab1181f394ed36cf5db27b418d3f68990"
+    }
+  ],
+  "definitions": {
+    "Int": {
+      "dataType": "integer"
+    }
+  }
+}
