@@ -14,6 +14,7 @@ description:
   Please see the README on GitHub at <https://github.com/j-mueller/sc-tools>
 
 build-type:    Simple
+data-files:    data/aiken-scripts.json
 
 common lang
   default-language:   Haskell2010
@@ -23,23 +24,35 @@ common lang
     DeriveGeneric
     DeriveLift
     DeriveTraversable
+    DerivingStrategies
     ExplicitForAll
     FlexibleContexts
+    GADTs
     GeneralizedNewtypeDeriving
     ImportQualifiedPost
+    LambdaCase
     MultiParamTypeClasses
     NumericUnderscores
     ScopedTypeVariables
     StandaloneDeriving
+    TypeApplications
+    ViewPatterns
 
   ghc-options:
     -Wall -Wnoncanonical-monad-instances -Wunused-packages
     -Wincomplete-uni-patterns -Wincomplete-record-updates
     -Wredundant-constraints -Widentities
 
+  other-modules:      Paths_convex_base
+  autogen-modules:    Paths_convex_base
+
 library
   import:          lang
   exposed-modules:
+    Convex.Aiken.Blueprint
+    Convex.Aiken.BlueprintKey
+    Convex.Aiken.Error
+    Convex.Aiken.Offchain
     Convex.BuildTx
     Convex.Class
     Convex.Constants
@@ -98,6 +111,7 @@ library
     , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols
+    , plutus-core
     , plutus-ledger-api
     , plutus-tx
     , serialise
@@ -108,8 +122,10 @@ test-suite convex-base-test
   type:               exitcode-stdio-1.0
   hs-source-dirs:     test
   main-is:            Spec.hs
-  other-modules:      Convex.PlutusLedgerSpec
   build-tool-depends: tasty-discover:tasty-discover
+  other-modules:
+    Convex.Aiken.Test
+    Convex.PlutusLedgerSpec
 
   -- Local dependencies
   build-depends:      convex-base
@@ -122,7 +138,9 @@ test-suite convex-base-test
   -- Hackage dependencies
   build-depends:
     , base                 >=4.14.0
+    , containers
     , hedgehog-quickcheck
     , QuickCheck
     , tasty
+    , tasty-hunit
     , tasty-quickcheck
