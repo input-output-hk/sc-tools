@@ -7,7 +7,7 @@ module Convex.PlutusTx (
   -- * Applying parameters to scripts
   P.ScriptDecodeError (..),
   applyParams,
-  unsafeApplyParamss,
+  unsafeApplyParams,
 ) where
 
 import Cardano.Api (PlutusScript)
