@@ -51,7 +51,7 @@ import Cardano.Ledger.Plutus.Language qualified as Plutus.Language
 import Cardano.Slotting.Slot qualified as CSlot
 import Cardano.Slotting.Time qualified as CTime
 import Control.Lens
-import Convex.Class (ValidationError)
+import Convex.Class (SendTxError (OtherProviderError))
 import Data.Bifunctor (first)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
@@ -87,11 +87,11 @@ poolId (Bech32StringOf text) =
 toMaestroTxIn :: C.TxIn -> OutputReference
 toMaestroTxIn (C.TxIn txId (C.TxIx txIx)) = OutputReference (TxHash (C.serialiseToRawBytesHexText txId)) (fromIntegral txIx)
 
-maestroSubmitResult :: Text.Text -> Either (ValidationError CurrentEra) C.TxId
+maestroSubmitResult :: Text.Text -> Either (SendTxError CurrentEra) C.TxId
 maestroSubmitResult submitResult = either (const (mapToValidationError submitResult)) Right . C.deserialiseFromRawBytesHex . Text.Encoding.encodeUtf8 $ submitResult
  where
-  mapToValidationError :: Text.Text -> Either (ValidationError CurrentEra) C.TxId
-  mapToValidationError = Left . error . show
+  mapToValidationError :: Text.Text -> Either (SendTxError CurrentEra) C.TxId
+  mapToValidationError = Left . OtherProviderError
 
 toMaestroStakeAddress :: C.StakeAddress -> Maestro.Bech32StringOf Maestro.RewardAddress
 toMaestroStakeAddress = Maestro.Bech32StringOf . C.serialiseToBech32

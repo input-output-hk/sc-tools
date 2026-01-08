@@ -68,6 +68,7 @@ library
     , ouroboros-consensus-cardano
     , ouroboros-network-api
     , safe-money
+    , servant-client
     , sop-extras
     , streaming
     , text

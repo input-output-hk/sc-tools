@@ -24,7 +24,7 @@ import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Slotting.Time (SlotLength, SystemStart)
 import Control.Monad.Trans.Class (lift)
-import Convex.Class (ValidationError)
+import Convex.Class (SendTxError)
 import Convex.Maestro.Types qualified as CMTypes
 import Convex.Utils (
   slotToUtcTime,
@@ -61,7 +61,7 @@ import Streaming.Prelude (Of, Stream)
 import Streaming.Prelude qualified as S
 
 -- | Submit a transaction (not yet supported by Maestro SDK)
-sendTxMaestro :: Bool -> Env.MaestroEnv 'Env.V1 -> C.Tx C.ConwayEra -> IO (Either (ValidationError CMTypes.CurrentEra) C.TxId)
+sendTxMaestro :: Bool -> Env.MaestroEnv 'Env.V1 -> C.Tx C.ConwayEra -> IO (Either (SendTxError CMTypes.CurrentEra) C.TxId)
 sendTxMaestro turboFlag env tx = do
   let txCbor = C.serialiseToCBOR tx
   CMTypes.maestroSubmitResult

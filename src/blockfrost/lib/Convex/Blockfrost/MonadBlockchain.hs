@@ -68,16 +68,17 @@ import Control.Lens (
   (<>=),
   (?=),
  )
+import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State (MonadState)
 import Convex.Blockfrost.Orphans ()
 import Convex.Blockfrost.Types qualified as Types
-import Convex.Class (ValidationError)
 import Convex.Utils (
+  liftEither,
   slotToUtcTime,
   txnUtxos,
  )
-import Data.Bifunctor (Bifunctor (first, second))
+import Data.Bifunctor (Bifunctor (second))
 import Data.ByteString.Lazy qualified as BSL
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -88,6 +89,7 @@ import Data.Maybe (
 import Data.SOP.NonEmpty qualified as NonEmpty
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Data.Time.Clock (
   UTCTime,
   getCurrentTime,
@@ -101,6 +103,7 @@ import Ouroboros.Consensus.Cardano.Block (
 import Ouroboros.Consensus.HardFork.History.Qry qualified as Qry
 import Ouroboros.Consensus.HardFork.History.Summary qualified as Summary
 import Ouroboros.Network.Magic (NetworkMagic (..))
+import Servant.Client.Internal.HttpClient (runClientM)
 import Streaming.Prelude qualified as S
 
 -- | Local cache of responses from Blockfrost API
@@ -112,9 +115,10 @@ data BlockfrostCache
   , bfsStakePools :: Maybe (Set PoolId)
   -- ^ Stake pool IDs
   , bfsTxInputs :: Map TxIn (TxOut CtxUTxO ConwayEra)
-  -- ^ Resolved tx inputs. We keep them around for a while because the
-  --   lookup on blockfrost is quite expensive (in terms HTTP requests
-  --   and CPU/memory usage)
+  {- ^ Resolved tx inputs. We keep them around for a while because the
+  lookup on blockfrost is quite expensive (in terms HTTP requests
+  and CPU/memory usage)
+  -}
   , bfsProtocolParams :: Maybe (LedgerProtocolParameters ConwayEra)
   , bfsStakeRewards :: Map C.StakeAddress (C.Quantity, Maybe PoolId)
   , bfsEraHistory :: Maybe C.EraHistory
@@ -204,25 +208,31 @@ getStakeVoteDelegatees :: Set C.StakeCredential -> m (Map C.StakeCredential Ledg
 getStakeVoteDelegatees _stakeCredentials = error "NOT IMPLEMENTED YET."
 
 -- | Send a transaction to the network using blockfrost's API
-sendTxBlockfrost :: (MonadBlockfrost m) => Tx ConwayEra -> m (Either (ValidationError ConwayEra) TxId)
-sendTxBlockfrost =
-  -- TODO: Fix error handling, see https://github.com/j-mueller/sc-tools/issues/271
-  fmap (first (error . (<>) "sendTxBlockfrost: Parse tx hash failed") . Types.toTxHash) . submitTx . CBORString . BSL.fromStrict . serialiseToCBOR
+sendTxBlockfrost :: (MonadBlockfrost m, MonadError Client.BlockfrostError m) => Tx ConwayEra -> m TxId
+sendTxBlockfrost tx = do
+  let cborTx = CBORString (BSL.fromStrict (serialiseToCBOR tx))
+  (clientEnv, _) <- getConf
+  txHash <-
+    liftEither Client.fromServantClientError $
+      liftIO $
+        runClientM (submitTx cborTx) clientEnv
+  liftEither (Client.BlockfrostError . Text.pack . (<>) "sendTxBlockfrost: Parse tx hash failed") $
+    pure $
+      Types.toTxHash txHash
 
 {- | Get a single 'TxIn'. If it is not in the cache, download the entire transaction
     and add all of its UTxOs to the cache.
 -}
-resolveTxIn :: (MonadBlockfrost m, MonadState BlockfrostCache m) => TxIn -> m (TxOut CtxUTxO ConwayEra)
+resolveTxIn :: (MonadBlockfrost m, MonadState BlockfrostCache m, MonadError Client.BlockfrostError m) => TxIn -> m (TxOut CtxUTxO ConwayEra)
 resolveTxIn txI@(TxIn txId (C.TxIx txIx)) = getOrRetrieve (txInputs . at txI) $ do
   utxos <-
     Types.resolveTx txId
-      -- FIXME: Error handling
-      >>= either (error . show) (pure . fmap (second C.toCtxUTxOTxOut) . txnUtxos)
+      >>= either (throwError . Client.BlockfrostError . Text.pack . show) (pure . fmap (second C.toCtxUTxOTxOut) . txnUtxos)
   txInputs <>= Map.fromList utxos
   pure $ snd $ utxos !! fromIntegral txIx
 
 -- | Resolve the given tx inputs
-getUtxoByTxIn :: (MonadBlockfrost m, MonadState BlockfrostCache m) => Set TxIn -> m (UTxO ConwayEra)
+getUtxoByTxIn :: (MonadBlockfrost m, MonadState BlockfrostCache m, MonadError Client.BlockfrostError m) => Set TxIn -> m (UTxO ConwayEra)
 getUtxoByTxIn txIns = fmap (C.UTxO . Map.fromList) $ for (Set.toList txIns) $ \txIn ->
   (txIn,) <$> resolveTxIn txIn
 

@@ -52,6 +52,7 @@ import Convex.Blockfrost.Types qualified as Types
 import Convex.Class (
   MonadBlockchain (..),
   MonadUtxoQuery (..),
+  SendTxError (OtherProviderError),
  )
 import Convex.ResolvedTx (ResolvedTx (..))
 import Convex.Utils (requiredTxIns)
@@ -59,6 +60,7 @@ import Convex.Utxos qualified as Utxos
 import Data.Bifunctor (Bifunctor (..))
 import Data.Coerce (coerce)
 import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Streaming.Prelude (Of, Stream)
 import Streaming.Prelude qualified as S
 
@@ -66,7 +68,15 @@ import Streaming.Prelude qualified as S
 class using blockfrost's API
 -}
 newtype BlockfrostT m a = BlockfrostT {unBlockfrostT :: StateT BlockfrostCache (BlockfrostClientT m) a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, Types.MonadBlockfrost)
+  deriving newtype
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , Types.MonadBlockfrost
+    , State.MonadState BlockfrostCache
+    , MonadError BlockfrostError
+    )
 
 -- | Unwrapped representation of BlockfrostT
 type Block m a = BlockfrostCache -> ClientConfig -> m (Either BlockfrostError (a, BlockfrostCache))
@@ -86,7 +96,7 @@ instance (MonadReader e m) => MonadReader e (BlockfrostT m) where
   ask = lift ask
   local f (up -> a) = down $ \cache config -> local f (a cache config)
 
-instance (MonadError e m) => MonadError e (BlockfrostT m) where
+instance {-# OVERLAPPABLE #-} (MonadError e m) => MonadError e (BlockfrostT m) where
   throwError = lift . throwError
   catchError (up -> action) handler = down $ \cache config ->
     catchError (action cache config) (fmap ((\block -> block cache config) . up) handler)
@@ -106,16 +116,20 @@ instance (MonadIO m) => MonadUtxoQuery (BlockfrostT m) where
         fmap (second (,Nothing)) results'
 
 instance (MonadIO m) => MonadBlockchain C.ConwayEra (BlockfrostT m) where
-  sendTx = MonadBlockchain.sendTxBlockfrost
-  utxoByTxIn = BlockfrostT . MonadBlockchain.getUtxoByTxIn
-  queryProtocolParameters = BlockfrostT MonadBlockchain.getProtocolParams
-  queryStakeAddresses stakeCreds _ = BlockfrostT (MonadBlockchain.getStakeAddresses stakeCreds)
-  queryStakePools = BlockfrostT MonadBlockchain.getStakePools
-  queryStakeVoteDelegatees stakeCreds = BlockfrostT (MonadBlockchain.getStakeVoteDelegatees stakeCreds)
-  querySystemStart = BlockfrostT MonadBlockchain.getSystemStart
-  queryEraHistory = BlockfrostT MonadBlockchain.getEraHistory
-  querySlotNo = BlockfrostT MonadBlockchain.getSlotNo
-  queryNetworkId = BlockfrostT MonadBlockchain.getNetworkId
+  sendTx tx =
+    (Right <$> MonadBlockchain.sendTxBlockfrost tx)
+      `catchError` ( \(err :: BlockfrostError) ->
+                       pure . Left . OtherProviderError . Text.pack $ show err
+                   )
+  utxoByTxIn = MonadBlockchain.getUtxoByTxIn
+  queryProtocolParameters = MonadBlockchain.getProtocolParams
+  queryStakeAddresses stakeCreds _ = MonadBlockchain.getStakeAddresses stakeCreds
+  queryStakePools = MonadBlockchain.getStakePools
+  queryStakeVoteDelegatees = MonadBlockchain.getStakeVoteDelegatees
+  querySystemStart = MonadBlockchain.getSystemStart
+  queryEraHistory = MonadBlockchain.getEraHistory
+  querySlotNo = MonadBlockchain.getSlotNo
+  queryNetworkId = MonadBlockchain.getNetworkId
 
 lookupUtxo :: (Types.MonadBlockfrost m) => Client.AddressUtxo -> m (Either Types.ScriptResolutionFailure (C.TxIn, C.TxOut C.CtxUTxO C.ConwayEra))
 lookupUtxo addr = runExceptT $ do
@@ -156,7 +170,7 @@ runBlockfrostT state proj =
     . unBlockfrostT
 
 -- | Download the transaction and all of its inputs
-resolveTx :: (MonadBlockfrost m, MonadError Types.DecodingError m) => C.TxId -> m ResolvedTx
+resolveTx :: (MonadBlockfrost m, MonadError Types.DecodingError m, MonadError BlockfrostError m) => C.TxId -> m ResolvedTx
 resolveTx txId = do
   rtxTransaction <- Types.resolveTx txId >>= liftEither
   let (C.Tx (C.getTxBodyContent -> txBodyContent) _witnesses) = rtxTransaction

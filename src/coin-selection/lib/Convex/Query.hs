@@ -46,7 +46,7 @@ import Convex.BuildTx (TxBuilder)
 import Convex.Class (
   MonadBlockchain (..),
   MonadUtxoQuery (utxosByPaymentCredentials),
-  ValidationError (..),
+  SendTxError (..),
   utxosByPaymentCredential,
  )
 import Convex.CoinSelection (
@@ -180,7 +180,7 @@ selectOperatorUTxO operator = fmap listToMaybe (operatorUtxos operator)
 -- | Failures during txn balancing and submission
 data BalanceAndSubmitError era
   = BalanceError (BalanceTxError era)
-  | SubmitError (ValidationError era)
+  | SubmitError (SendTxError era)
   deriving stock (Show, Generic)
 
 makeClassyPrisms ''BalanceAndSubmitError

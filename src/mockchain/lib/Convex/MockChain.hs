@@ -31,6 +31,8 @@ module Convex.MockChain (
   ExUnitsError (..),
   _Phase1Error,
   _Phase2Error,
+  SendTxError (..),
+  _MockchainError,
   ValidationError (..),
   _VExUnits,
   _PredicateFailures,
@@ -179,6 +181,7 @@ import Convex.Class (
   MonadDatumQuery (..),
   MonadMockchain (..),
   MonadUtxoQuery (..),
+  SendTxError (..),
   ValidationError (..),
   datums,
   env,
@@ -188,6 +191,7 @@ import Convex.Class (
   transactions,
   txById,
   _ApplyTxFailure,
+  _MockchainError,
   _Phase1Error,
   _Phase2Error,
   _PredicateFailures,
@@ -454,7 +458,7 @@ instance (Monad m, C.IsConwayBasedEra era, C.IsEra era, EraStake (C.ShelleyLedge
     case applyTransaction nps st tx of
       Left err -> do
         failedTransactions %= ((tx, err) :)
-        return $ Left err
+        return $ Left $ MockchainError err
       Right (st', _) -> do
         let C.Tx body _ = tx
             i = C.getTxId body
