@@ -70,6 +70,7 @@ import Control.Lens (
  )
 import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO (..))
+import Control.Monad.Reader (runReaderT)
 import Control.Monad.State (MonadState)
 import Convex.Blockfrost.Orphans ()
 import Convex.Blockfrost.Types qualified as Types
@@ -103,7 +104,6 @@ import Ouroboros.Consensus.Cardano.Block (
 import Ouroboros.Consensus.HardFork.History.Qry qualified as Qry
 import Ouroboros.Consensus.HardFork.History.Summary qualified as Summary
 import Ouroboros.Network.Magic (NetworkMagic (..))
-import Servant.Client.Internal.HttpClient (runClientM)
 import Streaming.Prelude qualified as S
 
 -- | Local cache of responses from Blockfrost API
@@ -211,11 +211,8 @@ getStakeVoteDelegatees _stakeCredentials = error "NOT IMPLEMENTED YET."
 sendTxBlockfrost :: (MonadBlockfrost m, MonadError Client.BlockfrostError m) => Tx ConwayEra -> m TxId
 sendTxBlockfrost tx = do
   let cborTx = CBORString (BSL.fromStrict (serialiseToCBOR tx))
-  (clientEnv, _) <- getConf
-  txHash <-
-    liftEither Client.fromServantClientError $
-      liftIO $
-        runClientM (submitTx cborTx) clientEnv
+  conf <- getConf
+  txHash <- liftEither id $ liftIO $ flip runReaderT conf $ C.runExceptT $ Client.unBlockfrostClientT $ submitTx cborTx
   liftEither (Client.BlockfrostError . Text.pack . (<>) "sendTxBlockfrost: Parse tx hash failed") $
     pure $
       Types.toTxHash txHash
