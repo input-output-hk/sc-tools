@@ -37,6 +37,8 @@ module Convex.Class (
   -- * Other types
   ExUnitsError (..),
   AsExUnitsError (..),
+  SendTxError (..),
+  AsSendTxError (..),
   ValidationError (..),
   AsValidationError (..),
   BlockchainException (..),
@@ -154,6 +156,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Katip.Monadic (KatipContextT (..))
 import Ouroboros.Consensus.HardFork.History (
@@ -214,22 +217,34 @@ between error-throwing functions without the need for explicit 'modifyError' cal
 makeClassyPrisms ''ExUnitsError
 
 -- see https://github.com/j-mueller/sc-tools/issues/214
+data SendTxError era
+  = CardanoNodeError !C.TxValidationErrorInCardanoMode
+  | MockchainError !(ValidationError era)
+  | OtherProviderError !Text.Text
+  deriving anyclass (Exception)
+
 data ValidationError era
-  = ValidationErrorInMode !C.TxValidationErrorInCardanoMode
-  | VExUnits !(ExUnitsError era)
+  = VExUnits !(ExUnitsError era)
   | PredicateFailures ![CollectError (C.ShelleyLedgerEra era)]
   | ApplyTxFailure !(ApplyTxError (C.ShelleyLedgerEra era))
   deriving anyclass (Exception)
+
+instance (C.IsAlonzoBasedEra era) => Show (SendTxError era) where
+  show err =
+    "SendTxError: " <> case err of
+      CardanoNodeError err' -> "CardanoNodeError: " <> show err'
+      MockchainError err' -> show err'
+      OtherProviderError err' -> "OtherProviderError: " <> Text.unpack err'
 
 instance (C.IsAlonzoBasedEra era) => Show (ValidationError era) where
   show err =
     C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $
       "ValidationError: " <> case err of
-        ValidationErrorInMode err' -> "ValidationErrorInMode: " <> show err'
         VExUnits err' -> "VExUnits: " <> show err'
         PredicateFailures errs' -> "PredicateFailures: " <> show errs'
         ApplyTxFailure err' -> "ApplyTxFailure: " <> show err'
 
+makeClassyPrisms ''SendTxError
 makeClassyPrisms ''ValidationError
 
 instance AsExUnitsError (ValidationError era) era where
@@ -240,7 +255,7 @@ instance AsExUnitsError (ValidationError era) era where
 class (Monad m) => MonadBlockchain era m | m -> era where
   sendTx
     :: C.Tx era
-    -> m (Either (ValidationError era) C.TxId)
+    -> m (Either (SendTxError era) C.TxId)
     -- ^ Submit a transaction to the network
 
   utxoByTxIn
@@ -268,13 +283,14 @@ class (Monad m) => MonadBlockchain era m | m -> era where
   querySystemStart :: m SystemStart
   queryEraHistory :: m C.EraHistory
   querySlotNo :: m (C.SlotNo, SlotLength, UTCTime)
-    -- ^ returns the current slot number, slot length and begin utc time for slot.
-    -- Slot 0 is returned when at genesis.
+    {- ^ returns the current slot number, slot length and begin utc time for slot.
+    Slot 0 is returned when at genesis.
+    -}
 
   queryNetworkId :: m C.NetworkId
     -- ^ Get the network id
 
-  default sendTx :: (MonadTrans t, m ~ t n, MonadBlockchain era n) => C.Tx era -> m (Either (ValidationError era) C.TxId)
+  default sendTx :: (MonadTrans t, m ~ t n, MonadBlockchain era n) => C.Tx era -> m (Either (SendTxError era) C.TxId)
   sendTx = lift . sendTx
 
   default utxoByTxIn :: (MonadTrans t, m ~ t n, MonadBlockchain era n) => Set C.TxIn -> m (C.UTxO era)
@@ -412,7 +428,8 @@ setSlot s = modifySlot (const (s, ()))
 modifyUtxo
   :: forall era m a
    . (C.IsShelleyBasedEra era, MonadMockchain era m)
-  => (UTxO (C.ShelleyLedgerEra era) -> (UTxO (C.ShelleyLedgerEra era), a)) -> m a
+  => (UTxO (C.ShelleyLedgerEra era) -> (UTxO (C.ShelleyLedgerEra era), a))
+  -> m a
 modifyUtxo f =
   C.shelleyBasedEraConstraints @era C.shelleyBasedEra $
     modifyMockChainState $ \s ->
@@ -469,11 +486,12 @@ control over the capabilities they require.
   See note [MonadUtxoQuery design].
 -}
 class (Monad m) => MonadUtxoQuery m where
-  -- | Given a set of payment credentials, retrieve all UTxOs associated with
-  -- those payment credentials according to the current indexed blockchain
-  -- state. Each UTXO also possibly has the resolved datum (meaning that if we
-  -- only have the datum hash, the implementation should try and resolve it to
-  -- the actual datum).
+  {- | Given a set of payment credentials, retrieve all UTxOs associated with
+  those payment credentials according to the current indexed blockchain
+  state. Each UTXO also possibly has the resolved datum (meaning that if we
+  only have the datum hash, the implementation should try and resolve it to
+  the actual datum).
+  -}
   utxosByPaymentCredentials :: Set C.PaymentCredential -> m (UtxoSet C.CtxUTxO (Maybe C.HashableScriptData))
   default utxosByPaymentCredentials :: (MonadTrans t, m ~ t n, MonadUtxoQuery n) => Set C.PaymentCredential -> m (UtxoSet C.CtxUTxO (Maybe C.HashableScriptData))
   utxosByPaymentCredentials = lift . utxosByPaymentCredentials
@@ -563,7 +581,7 @@ instance (MonadIO m, C.IsShelleyBasedEra era) => MonadBlockchain era (MonadBlock
       SubmitSuccess ->
         Right txId
       SubmitFail reason ->
-        Left $ ValidationErrorInMode reason
+        Left $ CardanoNodeError reason
 
   utxoByTxIn txIns =
     runQuery' (C.QueryInEra (C.QueryInShelleyBasedEra C.shelleyBasedEra (C.QueryUTxO (C.QueryUTxOByTxIn txIns))))

@@ -52,6 +52,7 @@ import Convex.CoinSelection (
   publicKeyCredential,
  )
 import Convex.MockChain (
+  SendTxError (..),
   ValidationError (..),
   evalMockchain0IO,
   failedTransactions,
@@ -323,7 +324,7 @@ checkTxById = do
 {- | Build a transaction, then balance and sign it with the wallet, then
   submit it to the mockchain.
 -}
-execBuildTxWallet :: (MonadMockchain C.ConwayEra m, MonadError (BalanceTxError C.ConwayEra) m) => Wallet -> BuildTxT C.ConwayEra m a -> m (Either (ValidationError C.ConwayEra) C.TxId)
+execBuildTxWallet :: (MonadMockchain C.ConwayEra m, MonadError (BalanceTxError C.ConwayEra) m) => Wallet -> BuildTxT C.ConwayEra m a -> m (Either (SendTxError C.ConwayEra) C.TxId)
 execBuildTxWallet wallet action = do
   tx <- execBuildTxT (action >> setMinAdaDepositAll Defaults.bundledProtocolParameters)
   fmap (C.getTxId . C.getTxBody) <$> balanceAndSubmit mempty wallet tx TrailingChange []

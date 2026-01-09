@@ -34,7 +34,7 @@ import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses (emptyTxOut)
 import Convex.Class (
   MonadBlockchain (queryNetworkId),
-  ValidationError,
+  SendTxError,
   runMonadBlockchainCardanoNodeT,
   sendTx,
  )
@@ -66,7 +66,7 @@ walletUtxos RunningNode{rnConnectInfo, rnNetworkId} wllt =
   NodeQueries.queryUTxOByAddress rnConnectInfo [C.toAddressAny $ address rnNetworkId wllt]
 
 -- | Send @n@ times the given amount of lovelace to the address
-sendFaucetFundsTo :: forall era. (C.IsBabbageBasedEra era) => Tracer IO WalletLog -> RunningNode -> C.AddressInEra era -> Int -> C.Quantity -> IO (Either (ValidationError era) (C.Tx era))
+sendFaucetFundsTo :: forall era. (C.IsBabbageBasedEra era) => Tracer IO WalletLog -> RunningNode -> C.AddressInEra era -> Int -> C.Quantity -> IO (Either (SendTxError era) (C.Tx era))
 sendFaucetFundsTo tracer node destination n amount = do
   fct <- faucet
   balanceAndSubmit tracer node fct (BuildTx.execBuildTx $ replicateM n (BuildTx.payToAddress destination (C.lovelaceToValue $ C.quantityToLovelace amount))) TrailingChange []
@@ -107,7 +107,7 @@ balanceAndSubmit
   -> TxBuilder era
   -> ChangeOutputPosition
   -> [C.ShelleyWitnessSigningKey]
-  -> IO (Either (ValidationError era) (C.Tx era))
+  -> IO (Either (SendTxError era) (C.Tx era))
 balanceAndSubmit tracer node wallet tx changePosition keys = do
   n <- runningNodeBlockchain @era tracer node queryNetworkId
   let walletAddress = Wallet.addressInEra n wallet
@@ -125,7 +125,7 @@ balanceAndSubmitReturn
   -> TxBuilder era
   -> ChangeOutputPosition
   -> [C.ShelleyWitnessSigningKey]
-  -> IO (Either (ValidationError era) (C.Tx era))
+  -> IO (Either (SendTxError era) (C.Tx era))
 balanceAndSubmitReturn tracer node wallet returnOutput tx changePosition keys = do
   utxos <- walletUtxos node wallet
   runningNodeBlockchain tracer node $ do

@@ -28,7 +28,7 @@ import Convex.CardanoApi.Lenses (emptyTxOut)
 import Convex.Class (
   MonadBlockchain (..),
   MonadMockchain,
-  ValidationError,
+  SendTxError,
  )
 import Convex.CoinSelection (
   BalanceTxError,
@@ -55,7 +55,7 @@ balanceAndSubmit
   -> TxBuilder era
   -> ChangeOutputPosition
   -> [C.ShelleyWitnessSigningKey]
-  -> m (Either (ValidationError era) (C.Tx era))
+  -> m (Either (SendTxError era) (C.Tx era))
 balanceAndSubmit dbg wallet tx changePosition keys = inBabbage @era $ do
   n <- queryNetworkId
   let walletAddress = Wallet.addressInEra n wallet
@@ -93,7 +93,7 @@ balanceAndSubmitReturn
   -> TxBuilder era
   -> ChangeOutputPosition
   -> [C.ShelleyWitnessSigningKey]
-  -> m (Either (ValidationError era) (C.Tx era))
+  -> m (Either (SendTxError era) (C.Tx era))
 balanceAndSubmitReturn dbg wallet returnOutput tx changePosition keys = inBabbage @era $ do
   u <- MockChain.walletUtxo wallet
   (tx', _) <- CoinSelection.balanceForWalletReturn dbg wallet u returnOutput tx changePosition
@@ -110,17 +110,17 @@ balanceAndSubmitReturn dbg wallet returnOutput tx changePosition keys = inBabbag
 paymentTo
   :: forall era m
    . (MonadMockchain era m, MonadError (BalanceTxError era) m, C.IsBabbageBasedEra era)
-  => Wallet -> Wallet -> m (Either (ValidationError era) (C.Tx era))
+  => Wallet -> Wallet -> m (Either (SendTxError era) (C.Tx era))
 paymentTo wFrom wTo = inBabbage @era $ do
   let tx = execBuildTx (payToAddress (Wallet.addressInEra Defaults.networkId wTo) (C.lovelaceToValue 10_000_000))
   balanceAndSubmit mempty wFrom tx TrailingChange []
 
 -- | Pay 100 Ada from one of the seed addresses to an @Operator@
-payToOperator :: (MonadMockchain era m, MonadError (BalanceTxError era) m, C.IsBabbageBasedEra era) => Tracer m TxBalancingMessage -> Wallet -> Operator k -> m (Either (ValidationError era) (C.Tx era))
+payToOperator :: (MonadMockchain era m, MonadError (BalanceTxError era) m, C.IsBabbageBasedEra era) => Tracer m TxBalancingMessage -> Wallet -> Operator k -> m (Either (SendTxError era) (C.Tx era))
 payToOperator dbg = payToOperator' dbg (C.lovelaceToValue 100_000_000)
 
 -- | Pay some Ada from one of the seed addresses to an @Operator@
-payToOperator' :: forall era k m. (MonadMockchain era m, MonadError (BalanceTxError era) m, C.IsBabbageBasedEra era) => Tracer m TxBalancingMessage -> Value -> Wallet -> Operator k -> m (Either (ValidationError era) (C.Tx era))
+payToOperator' :: forall era k m. (MonadMockchain era m, MonadError (BalanceTxError era) m, C.IsBabbageBasedEra era) => Tracer m TxBalancingMessage -> Value -> Wallet -> Operator k -> m (Either (SendTxError era) (C.Tx era))
 payToOperator' dbg value wFrom Operator{oPaymentKey} = inBabbage @era $ do
   p <- queryProtocolParameters
   let addr =
