@@ -90,7 +90,7 @@ library
   build-depends:
     , base16-bytestring
     , bytestring
-    , cardano-api                  ==10.17.2.0
+    , cardano-api                  ==10.21.0.0
     , cardano-binary
     , cardano-crypto-class
     , cardano-crypto-wrapper
