@@ -33,7 +33,7 @@
     };
 
     cardano-node = {
-      url = "github:input-output-hk/cardano-node?ref=10.1.4";
+      url = "github:input-output-hk/cardano-node?ref=10.6.1";
     };
 
     cardano-cli = {

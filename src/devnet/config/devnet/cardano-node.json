@@ -5,6 +5,7 @@
   "ShelleyGenesisFile": "genesis-shelley.json",
   "AlonzoGenesisFile": "genesis-alonzo.json",
   "ConwayGenesisFile": "genesis-conway.json",
+  "DijkstraGenesisFile": "genesis-dijkstra.json",
 
   "ApplicationName": "cardano-sl",
   "ApplicationVersion": 1,
@@ -39,6 +40,89 @@
 
   "TurnOnLogMetrics": true,
   "TurnOnLogging": true,
+
+  "TraceOptionForwarder": null,
+  "TraceOptionMetricsPrefix": null,
+  "TraceOptionNodeName": null,
+  "TraceOptionPeerFrequency": 3000,
+  "TraceOptionResourceFrequency": 4000,
+  "TraceOptions": {
+    "": {
+      "backends": [
+        "Stdout MachineFormat",
+        "EKGBackend",
+        "Forwarder"
+      ],
+      "detail": "DNormal",
+      "severity": "Notice"
+    },
+    "BlockFetch.Client.CompletedBlockFetch": {
+      "maxFrequency": 2
+    },
+    "BlockFetch.Decision": {
+      "severity": "Info"
+    },
+    "ChainDB": {
+      "severity": "Info"
+    },
+    "ChainDB.AddBlockEvent.AddBlockValidation.ValidCandidate": {
+      "maxFrequency": 2
+    },
+    "ChainDB.AddBlockEvent.AddedBlockToQueue": {
+      "maxFrequency": 2
+    },
+    "ChainDB.AddBlockEvent.AddedBlockToVolatileDB": {
+      "maxFrequency": 2
+    },
+    "ChainDB.CopyToImmutableDBEvent.CopiedBlockToImmutableDB": {
+      "maxFrequency": 2
+    },
+    "ChainSync.Client": {
+      "severity": "Info"
+    },
+    "ChainSync.Client.DownloadedHeader": {
+      "maxFrequency": 2
+    },
+    "Forge.Loop": {
+      "severity": "Info"
+    },
+    "Forge.StateInfo": {
+      "severity": "Info"
+    },
+    "Mempool": {
+      "severity": "Info"
+    },
+    "Net.ConnectionManager.Remote": {
+      "severity": "Info"
+    },
+    "Net.ErrorPolicy": {
+      "severity": "Info"
+    },
+    "Net.ErrorPolicy.Local": {
+      "severity": "Info"
+    },
+    "Net.InboundGovernor.Remote": {
+      "severity": "Info"
+    },
+    "Net.Mux.Remote": {
+      "severity": "Info"
+    },
+    "Net.PeerSelection": {
+      "severity": "Info"
+    },
+    "Net.Subscription.DNS": {
+      "severity": "Info"
+    },
+    "Net.Subscription.IP": {
+      "severity": "Info"
+    },
+    "Resources": {
+      "severity": "Info"
+    },
+    "Startup.DiffusionInit": {
+      "severity": "Info"
+    }
+  },
 
   "TracingVerbosity": "NormalVerbosity",
   "TraceBlockFetchClient": false,
