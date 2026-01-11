@@ -38,7 +38,14 @@ let
           convex-tx-mod.ghcOptions = [ "-Werror" ];
           convex-wallet.ghcOptions = [ "-Werror" ];
         };
-      }];
+      }
+
+      ({pkgs, ...}: {
+              packages.proto-lens-protobuf-types.components.library.build-tools = [pkgs.buildPackages.protobuf];
+      })
+
+      
+      ];
     }
   );
 

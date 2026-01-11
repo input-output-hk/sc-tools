@@ -22,7 +22,7 @@ module Convex.NodeParams (
   L.hkdMaxTxSizeL,
   L.hkdMinFeeAL,
   L.hkdMinFeeBL,
-  L.hkdPoolDepositL,
+  L.hkdKeyDepositL,
   L.hkdPricesL,
   L.hkdMaxTxExUnitsL,
   L.hkdMaxBlockExUnitsL,

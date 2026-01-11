@@ -287,6 +287,7 @@ inMary f = case C.maryBasedEra @era of
   C.MaryEraOnwardsAlonzo -> f
   C.MaryEraOnwardsBabbage -> f
   C.MaryEraOnwardsConway -> f
+  C.MaryEraOnwardsDijkstra -> f
 
 inAlonzo
   :: forall era a
@@ -297,6 +298,7 @@ inAlonzo f = case C.alonzoBasedEra @era of
   C.AlonzoEraOnwardsAlonzo -> f
   C.AlonzoEraOnwardsBabbage -> f
   C.AlonzoEraOnwardsConway -> f
+  C.AlonzoEraOnwardsDijkstra -> f
 
 inBabbage
   :: forall era a
@@ -306,6 +308,7 @@ inBabbage
 inBabbage f = case C.babbageBasedEra @era of
   C.BabbageEraOnwardsBabbage -> f
   C.BabbageEraOnwardsConway -> f
+  C.BabbageEraOnwardsDijkstra -> f
 
 inConway
   :: forall era a
@@ -314,12 +317,14 @@ inConway
   -> a
 inConway f = case C.conwayBasedEra @era of
   C.ConwayEraOnwardsConway -> f
+  C.ConwayEraOnwardsDijkstra -> f
 
 alonzoEraUtxo :: forall era a. (C.IsAlonzoBasedEra era) => ((L.AlonzoEraUTxO (C.ShelleyLedgerEra era)) => a) -> a
 alonzoEraUtxo f = case C.alonzoBasedEra @era of
   C.AlonzoEraOnwardsAlonzo -> f
   C.AlonzoEraOnwardsBabbage -> f
   C.AlonzoEraOnwardsConway -> f
+  C.AlonzoEraOnwardsDijkstra -> f
 
 -- | Inputs consumed by the transaction
 spendInputs :: C.TxBodyContent v era -> Set C.TxIn

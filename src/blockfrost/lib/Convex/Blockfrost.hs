@@ -149,7 +149,7 @@ getAddressUtxos' addr paged order = BlockfrostT $ lift $ do
   (_, proj) <- BlockfrostClientT ask
   Types.runBlockfrostClientT proj (Client.getAddressUtxos' addr paged order)
     >>= \case
-      Left Types.BlockfrostNotFound -> pure []
+      Left Types.BlockfrostNotFound{} -> pure []
       Left err -> BlockfrostClientT (throwError err)
       Right k -> pure k
 

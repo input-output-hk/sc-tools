@@ -477,7 +477,7 @@ protocolParametersConway pp =
             & L.hkdMaxTxSizeL .~ fromInteger (_protocolParamsMaxTxSize pp)
             & L.hkdMaxBHSizeL .~ fromInteger (_protocolParamsMaxBlockHeaderSize pp)
             & L.hkdKeyDepositL .~ toLovelace (_protocolParamsKeyDeposit pp)
-            & L.hkdPoolDepositL .~ toLovelace (_protocolParamsKeyDeposit pp)
+            & L.hkdPoolDepositCompactL .~ L.toCompactPartial (toLovelace (_protocolParamsKeyDeposit pp))
             & L.hkdEMaxL .~ L.EpochInterval (fromInteger (_protocolParamsEMax pp))
             & L.hkdNOptL .~ fromInteger (_protocolParamsNOpt pp)
             & L.hkdA0L .~ C.unsafeBoundedRational (_protocolParamsA0 pp) -- TODO: Is unsafeBoundedRational ok to use here?
@@ -531,7 +531,7 @@ protocolParametersConway pp =
             & L.hkdCommitteeMaxTermLengthL .~ BaseTypes.EpochInterval (maybe 146 (fromIntegral . quantity) (_protocolParamsCommitteeMaxTermLength pp))
             & L.hkdGovActionLifetimeL .~ BaseTypes.EpochInterval (maybe 6 (fromIntegral . quantity) (_protocolParamsGovActionLifetime pp))
             & L.hkdGovActionDepositL .~ maybe 100_000_000_000 toLovelace (_protocolParamsGovActionDeposit pp)
-            & L.hkdDRepDepositL .~ maybe 500_000_000 toLovelace (_protocolParamsDrepDeposit pp)
+            & L.hkdDRepDepositCompactL .~ L.toCompactPartial (maybe 500_000_000 toLovelace (_protocolParamsDrepDeposit pp))
             & L.hkdDRepActivityL .~ BaseTypes.EpochInterval (maybe 20 (fromIntegral . quantity) (_protocolParamsDrepActivity pp))
             & L.hkdMinFeeRefScriptCostPerByteL .~ C.unsafeBoundedRational (fromMaybe 15 (_protocolParamsMinFeeRefScriptCostPerByte pp))
         )

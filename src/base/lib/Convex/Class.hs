@@ -88,13 +88,10 @@ import Cardano.Ledger.Shelley.API (
  )
 import Cardano.Ledger.Shelley.LedgerState (
   certDStateL,
-  dsUnifiedL,
   lsCertStateL,
-  rewards,
  )
+import Cardano.Ledger.State (accountsL, addToBalanceAccounts)
 import Cardano.Ledger.UMap (
-  RDPair (..),
-  adjust,
   compactCoinOrError,
  )
 import Cardano.Slotting.Time (
@@ -108,6 +105,7 @@ import Control.Exception (
 import Control.Lens (
   Prism',
   at,
+  over,
   set,
   to,
   view,
@@ -403,14 +401,8 @@ putMockChainState s = modifyMockChainState (const ((), s))
 setReward :: forall era m. (EraCertState (C.ShelleyLedgerEra era), MonadMockchain era m) => C.StakeCredential -> Coin -> m ()
 setReward cred coin = do
   mcs <- getMockChainState
-  let
-    dState = mcs ^. poolState . lsCertStateL . certDStateL
-    umap =
-      adjust
-        (\rd -> rd{rdReward = compactCoinOrError coin})
-        (C.toShelleyStakeCredential cred)
-        (rewards dState)
-  putMockChainState (set (poolState . lsCertStateL . certDStateL . dsUnifiedL) umap mcs)
+  putMockChainState $
+    over (poolState . lsCertStateL . certDStateL . accountsL) (addToBalanceAccounts (Map.singleton (C.toShelleyStakeCredential cred) (compactCoinOrError coin))) mcs
 
 modifySlot :: (MonadMockchain era m) => (C.SlotNo -> (C.SlotNo, a)) -> m a
 modifySlot f = modifyMockChainState $ \s ->
