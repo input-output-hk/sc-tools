@@ -73,7 +73,8 @@ library
   hs-source-dirs:  lib
   build-depends:
     , aeson
-    , base           >=4.14 && <4.20
+    , base                 >=4.14 && <4.20
+    , cardano-ledger-core
     , containers
     , either-result
     , exceptions

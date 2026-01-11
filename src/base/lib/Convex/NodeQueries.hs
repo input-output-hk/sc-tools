@@ -289,6 +289,7 @@ queryStakeAddresses info creds = do
   let C.LocalNodeConnectInfo{C.localNodeNetworkId} = info
   queryInSupportedEra info $ \case
     C.Experimental.ConwayEra -> EraQuery{eqQuery = C.QueryStakeAddresses creds localNodeNetworkId, eqResult = first (fmap C.lovelaceToQuantity)}
+    C.Experimental.DijkstraEra -> EraQuery{eqQuery = C.QueryStakeAddresses creds localNodeNetworkId, eqResult = first (fmap C.lovelaceToQuantity)}
 
 {- | Get the set of registered stake pools
   Throws 'QueryException' if the node's era is not supported or if the connection
@@ -297,6 +298,7 @@ queryStakeAddresses info creds = do
 queryStakePools :: C.LocalNodeConnectInfo -> IO (Set C.PoolId)
 queryStakePools connectInfo = queryInSupportedEra connectInfo $ \case
   C.Experimental.ConwayEra -> EraQuery{eqQuery = C.QueryStakePools, eqResult = id}
+  C.Experimental.DijkstraEra -> EraQuery{eqQuery = C.QueryStakePools, eqResult = id}
 
 {- | Get the delegatees for a set of stake credentials (only works starting at ConwayEra).
   Throws 'QueryException' if the node's era is not supported or if the connection
@@ -306,6 +308,7 @@ queryStakeVoteDelegatees :: C.LocalNodeConnectInfo -> Set C.StakeCredential -> I
 queryStakeVoteDelegatees info creds = do
   queryInSupportedEra info $ \case
     C.Experimental.ConwayEra -> EraQuery{eqQuery = C.QueryStakeVoteDelegatees creds, eqResult = id}
+    C.Experimental.DijkstraEra -> EraQuery{eqQuery = C.QueryStakeVoteDelegatees creds, eqResult = id}
 
 {- | Get the current epoch
   Throws 'QueryException' if the node's era is not supported or if the connection
@@ -314,6 +317,7 @@ queryStakeVoteDelegatees info creds = do
 queryEpoch :: C.LocalNodeConnectInfo -> IO C.EpochNo
 queryEpoch connectInfo = queryInSupportedEra connectInfo $ \case
   C.Experimental.ConwayEra -> EraQuery{eqQuery = C.QueryEpoch, eqResult = id}
+  C.Experimental.DijkstraEra -> EraQuery{eqQuery = C.QueryEpoch, eqResult = id}
 
 {- | Query UTxO for all given addresses at given point.
   Throws 'QueryException' if the node's era is not supported or if the connection
@@ -322,3 +326,4 @@ queryEpoch connectInfo = queryInSupportedEra connectInfo $ \case
 queryUTxOFilter :: C.LocalNodeConnectInfo -> C.QueryUTxOFilter -> IO (UtxoSet C.CtxUTxO ())
 queryUTxOFilter connectInfo flt = queryInSupportedEra connectInfo $ \case
   C.Experimental.ConwayEra -> EraQuery{eqQuery = C.QueryUTxO flt, eqResult = Utxos.fromApiUtxo}
+  C.Experimental.DijkstraEra -> EraQuery{eqQuery = C.QueryUTxO flt, eqResult = Utxos.fromApiUtxo}

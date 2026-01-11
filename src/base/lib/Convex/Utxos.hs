@@ -200,6 +200,11 @@ instance ToJSON (C.InAnyCardanoEra (C.TxOut ctx)) where
       [ "tag" .= String "ConwayTxOut"
       , "txOut" .= toJSON txOut
       ]
+  toJSON (C.InAnyCardanoEra C.DijkstraEra txOut) =
+    object
+      [ "tag" .= String "DijkstraTxOut"
+      , "txOut" .= toJSON txOut
+      ]
 
 type TxOutConstraints (k :: Type -> Constraint) ctx =
   ( k (C.TxOut ctx C.ShelleyEra)
@@ -208,6 +213,7 @@ type TxOutConstraints (k :: Type -> Constraint) ctx =
   , k (C.TxOut ctx C.AlonzoEra)
   , k (C.TxOut ctx C.BabbageEra)
   , k (C.TxOut ctx C.ConwayEra)
+  , k (C.TxOut ctx C.DijkstraEra)
   )
 
 -- FIXME (koslambou) Remove duplication with similar instance below
@@ -221,7 +227,8 @@ instance (TxOutConstraints FromJSON ctx) => FromJSON (C.InAnyCardanoEra (C.TxOut
       "AlonzoTxOut" -> fmap (C.InAnyCardanoEra C.AlonzoEra) $ o .: "txOut"
       "BabbageTxOut" -> fmap (C.InAnyCardanoEra C.BabbageEra) $ o .: "txOut"
       "ConwayTxOut" -> fmap (C.InAnyCardanoEra C.ConwayEra) $ o .: "txOut"
-      _ -> fail "Expected tag to be ShelleyTxOut, AllegraTxOut, MaryTxOut, AlonzoTxOut, BabbageTxOut, ConwayTxOut"
+      "DijkstraTxOut" -> fmap (C.InAnyCardanoEra C.DijkstraEra) $ o .: "txOut"
+      _ -> fail "Expected tag to be ShelleyTxOut, AllegraTxOut, MaryTxOut, AlonzoTxOut, BabbageTxOut, ConwayTxOut, DijkstraTxOut"
 
 -- | A utxo set with one element
 singleton :: (C.IsCardanoEra era) => TxIn -> (C.TxOut ctx era, a) -> UtxoSet ctx a
@@ -250,6 +257,7 @@ fromApiUtxo (C.InAnyCardanoEra C.cardanoEra -> u) = case u of
   C.InAnyCardanoEra C.AlonzoEra (UTxO utxoSet) -> UtxoSet (fmap (\x -> (C.InAnyCardanoEra C.cardanoEra x, ())) utxoSet)
   C.InAnyCardanoEra C.BabbageEra (UTxO utxoSet) -> UtxoSet (fmap (\x -> (C.InAnyCardanoEra C.cardanoEra x, ())) utxoSet)
   C.InAnyCardanoEra C.ConwayEra (UTxO utxoSet) -> UtxoSet (fmap (\x -> (C.InAnyCardanoEra C.cardanoEra x, ())) utxoSet)
+  C.InAnyCardanoEra C.DijkstraEra (UTxO utxoSet) -> UtxoSet (fmap (\x -> (C.InAnyCardanoEra C.cardanoEra x, ())) utxoSet)
 
 toApiUtxo :: forall era a. (C.IsBabbageBasedEra era) => UtxoSet C.CtxUTxO a -> UTxO era
 toApiUtxo (UtxoSet utxos) = UTxO (fmap (toTxOut . fst) utxos)

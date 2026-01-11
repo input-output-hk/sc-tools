@@ -11,7 +11,6 @@ module Cardano.Api.Extras (
 import Cardano.Api (
   BuildTx,
   BuildTxWith (..),
-  Certificate,
   ConwayEraOnwards,
   ExecutionUnits,
   Featured (..),
@@ -22,7 +21,7 @@ import Cardano.Api (
   ShelleyLedgerEra,
   StakeAddress,
   StakeCredential,
-  TxBodyContent,
+  TxBodyContent (..),
   TxBodyErrorAutoBalance (..),
   TxCertificates (..),
   TxIn,
@@ -44,6 +43,7 @@ import Cardano.Api (
   setTxWithdrawals,
  )
 import Cardano.Api qualified as C
+import Cardano.Api.Experimental (Certificate)
 import Cardano.Api.Ledger qualified as L
 import Control.Lens ((&))
 import Data.Bitraversable (bitraverse)
@@ -63,7 +63,7 @@ substituteExecutionUnits
   -> Either (TxBodyErrorAutoBalance era) (TxBodyContent BuildTx era)
 substituteExecutionUnits
   exUnitsMap
-  txbodycontent@( C.TxBodyContent
+  txbodycontent@( TxBodyContent
                     txIns
                     _
                     _
@@ -173,47 +173,32 @@ substituteExecutionUnits
       -> Either (TxBodyErrorAutoBalance era) (TxCertificates BuildTx era)
     mapScriptWitnessesCertificates TxCertificatesNone = Right TxCertificatesNone
     mapScriptWitnessesCertificates txCertificates'@(TxCertificates supported _) = do
-      let indexAndAdjustScriptCertificates C.TxCertificatesNone = []
-          indexAndAdjustScriptCertificates (C.TxCertificates _ certs) =
-            [ (cert, eWitness)
-            | (ix, (cert, C.BuildTxWith mWitness)) <- zip [0 ..] (toList certs)
-            , let eWitness = case mWitness of
-                    Nothing -> pure $ C.BuildTxWith Nothing
-                    Just (stakeCred, witness) ->
-                      let adjustedWitness =
-                            adjustScriptWitness
-                              (substituteExecUnits $ C.ScriptWitnessIndexCertificate ix)
-                              witness
-                       in C.BuildTxWith . Just . (stakeCred,) <$> adjustedWitness
-            ]
-
       let mappedScriptWitnesses
             :: [ ( Certificate era
                  , Either
-                    (TxBodyErrorAutoBalance era)
-                    ( BuildTxWith
-                        BuildTx
-                        ( Maybe
-                            ( StakeCredential
-                            , Witness WitCtxStake era
-                            )
-                        )
-                    )
+                     (TxBodyErrorAutoBalance era)
+                     ( BuildTxWith
+                         BuildTx
+                         ( Maybe
+                             ( StakeCredential
+                             , Witness WitCtxStake era
+                             )
+                         )
+                     )
                  )
                ]
-          -- mappedScriptWitnesses =
-          --   [ (cert, BuildTxWith . Just . (stakeCred,) <$> eWitness')
-          --   | (ix, cert, stakeCred, witness) <- indexTxCertificates txCertificates'
-          --   , let eWitness' = adjustScriptWitness (substituteExecUnits ix) witness
-          --   ]
-          mappedScriptWitnesses = indexAndAdjustScriptCertificates txCertificates'
+          mappedScriptWitnesses =
+            [ (cert, BuildTxWith . Just . (stakeCred,) <$> eWitness')
+            | (ix, cert, stakeCred, witness) <- C.indexTxCertificates txCertificates'
+            , let eWitness' = adjustScriptWitness (substituteExecUnits ix) witness
+            ]
       TxCertificates supported . fromList <$> traverseScriptWitnesses mappedScriptWitnesses
 
     mapScriptWitnessesVotes
       :: Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era))
       -> Either
-          (TxBodyErrorAutoBalance era)
-          (Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era)))
+           (TxBodyErrorAutoBalance era)
+           (Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era)))
     mapScriptWitnessesVotes Nothing = return Nothing
     mapScriptWitnessesVotes (Just (Featured _ TxVotingProceduresNone)) = return Nothing
     mapScriptWitnessesVotes (Just (Featured _ (TxVotingProcedures _ ViewTx))) = return Nothing
@@ -233,8 +218,8 @@ substituteExecutionUnits
     mapScriptWitnessesProposals
       :: Maybe (Featured ConwayEraOnwards era (TxProposalProcedures BuildTx era))
       -> Either
-          (TxBodyErrorAutoBalance era)
-          (Maybe (Featured ConwayEraOnwards era (TxProposalProcedures BuildTx era)))
+           (TxBodyErrorAutoBalance era)
+           (Maybe (Featured ConwayEraOnwards era (TxProposalProcedures BuildTx era)))
     mapScriptWitnessesProposals Nothing = return Nothing
     mapScriptWitnessesProposals (Just (Featured era proposals)) = do
       substitutedExecutionUnits <-

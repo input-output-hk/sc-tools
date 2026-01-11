@@ -124,6 +124,7 @@ import Cardano.Api (
   WitCtxMint,
  )
 import Cardano.Api qualified as C
+import Cardano.Api.Experimental as Ex
 import Cardano.Ledger.BaseTypes qualified as Shelley
 import Cardano.Ledger.Credential qualified as Credential
 import Cardano.Ledger.Hashes qualified as Hashes
@@ -358,7 +359,7 @@ _TxWithdrawals = iso from to
 
 type Certificates build era =
   OMap
-    (C.Certificate era)
+    (Ex.Certificate (C.ShelleyLedgerEra era))
     (BuildTxWith build (Maybe (C.StakeCredential, C.Witness C.WitCtxStake era)))
 
 {- | The shelley-era constructor of 'C.TxCertificates'.
@@ -670,14 +671,14 @@ _PlutusScriptWitness
    . (C.IsPlutusScriptLanguage lang)
   => C.PlutusScriptVersion lang
   -> Prism'
-      (C.ScriptWitness witctx era)
-      ( C.ScriptLanguageInEra lang era
-      , C.PlutusScriptVersion lang
-      , C.PlutusScriptOrReferenceInput lang
-      , C.ScriptDatum witctx
-      , C.ScriptRedeemer
-      , C.ExecutionUnits
-      )
+       (C.ScriptWitness witctx era)
+       ( C.ScriptLanguageInEra lang era
+       , C.PlutusScriptVersion lang
+       , C.PlutusScriptOrReferenceInput lang
+       , C.ScriptDatum witctx
+       , C.ScriptRedeemer
+       , C.ExecutionUnits
+       )
 _PlutusScriptWitness lang = prism' from (to lang)
  where
   from :: (C.ScriptLanguageInEra lang era, C.PlutusScriptVersion lang, C.PlutusScriptOrReferenceInput lang, C.ScriptDatum witctx, C.ScriptRedeemer, C.ExecutionUnits) -> C.ScriptWitness witctx era
@@ -687,9 +688,11 @@ _PlutusScriptWitness lang = prism' from (to lang)
   to C.PlutusScriptV1 (C.PlutusScriptWitness era C.PlutusScriptV1 i dtr red ex) = Just (era, lang, i, dtr, red, ex)
   to C.PlutusScriptV2 (C.PlutusScriptWitness era C.PlutusScriptV2 i dtr red ex) = Just (era, lang, i, dtr, red, ex)
   to C.PlutusScriptV3 (C.PlutusScriptWitness era C.PlutusScriptV3 i dtr red ex) = Just (era, lang, i, dtr, red, ex)
+  to C.PlutusScriptV4 (C.PlutusScriptWitness era C.PlutusScriptV4 i dtr red ex) = Just (era, lang, i, dtr, red, ex)
   to C.PlutusScriptV1 (C.PlutusScriptWitness{}) = Nothing
   to C.PlutusScriptV2 (C.PlutusScriptWitness{}) = Nothing
   to C.PlutusScriptV3 (C.PlutusScriptWitness{}) = Nothing
+  to C.PlutusScriptV4 (C.PlutusScriptWitness{}) = Nothing
   to _ C.SimpleScriptWitness{} = Nothing
 
 _TxValidityNoLowerBound :: forall era. Prism' (C.TxValidityLowerBound era) ()

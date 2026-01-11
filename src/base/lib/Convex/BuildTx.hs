@@ -134,6 +134,10 @@ import Cardano.Api (
   WitCtxTxIn,
  )
 import Cardano.Api qualified as C
+import Cardano.Api.Compatible.Certificate (Delegatee)
+import Cardano.Api.Experimental.Certificate (Certificate (..))
+import Cardano.Api.Experimental.Certificate qualified as Ex
+import Cardano.Api.Experimental.Era qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Conway.TxCert qualified as ConwayTxCert (Delegatee (..))
@@ -196,6 +200,7 @@ simpleScriptInShelleyEra = case C.shelleyBasedEra @era of
   C.ShelleyBasedEraAlonzo -> C.SimpleScriptInAlonzo
   C.ShelleyBasedEraBabbage -> C.SimpleScriptInBabbage
   C.ShelleyBasedEraConway -> C.SimpleScriptInConway
+  C.ShelleyBasedEraDijkstra -> C.SimpleScriptInDijkstra
 
 mkTxOutValue :: forall era. (C.IsMaryBasedEra era) => C.Value -> C.TxOutValue era
 mkTxOutValue val =
@@ -386,7 +391,7 @@ addStakeScriptWitnessWithRedeemerFn
      , C.IsPlutusScriptLanguage lang
      , C.HasScriptLanguageInEra lang era
      )
-  => C.Certificate era
+  => Certificate (C.ShelleyLedgerEra era)
   -> C.StakeCredential
   -> C.PlutusScript lang
   -> (C.TxBodyContent C.BuildTx era -> redeemer)
@@ -405,7 +410,7 @@ addStakeScriptWitness
      , C.IsPlutusScriptLanguage lang
      , C.HasScriptLanguageInEra lang era
      )
-  => C.Certificate era
+  => Certificate (C.ShelleyLedgerEra era)
   -> C.StakeCredential
   -> C.PlutusScript lang
   -> redeemer
@@ -428,7 +433,7 @@ addStakeScriptWitnessRefWithRedeemerFn
      , C.HasScriptLanguageInEra lang era
      , C.IsPlutusScriptLanguage lang
      )
-  => C.Certificate era
+  => Certificate (C.ShelleyLedgerEra era)
   -> C.StakeCredential
   -> C.TxIn
   -> C.PlutusScriptVersion lang
@@ -448,7 +453,7 @@ addStakeScriptWitnessRef
      , C.HasScriptLanguageInEra lang era
      , C.IsPlutusScriptLanguage lang
      )
-  => C.Certificate era
+  => Certificate (C.ShelleyLedgerEra era)
   -> C.StakeCredential
   -> C.TxIn
   -> C.PlutusScriptVersion lang
@@ -459,7 +464,7 @@ addStakeScriptWitnessRef certificate credential txIn plutusScriptVersion red = a
 {- | Like @addStakeWitness@ but uses a function that takes a @TxBody@ to build the witness.
 TODO Give an example of why this is useful. We should just remove it.
 -}
-addStakeWitnessWithTxBody :: (MonadBuildTx era m, C.IsShelleyBasedEra era) => C.Certificate era -> C.StakeCredential -> (TxBody era -> C.Witness C.WitCtxStake era) -> m ()
+addStakeWitnessWithTxBody :: (MonadBuildTx era m, C.IsShelleyBasedEra era) => Certificate (C.ShelleyLedgerEra era) -> C.StakeCredential -> (TxBody era -> C.Witness C.WitCtxStake era) -> m ()
 addStakeWitnessWithTxBody certificate credential buildWitness =
   addTxBuilder (TxBuilder $ \body -> over (L.txCertificates . L._TxCertificates) (OMap.>| (certificate, C.BuildTxWith (Just (credential, buildWitness body)))))
 
@@ -948,9 +953,10 @@ addWithdrawZeroPlutusV2Reference refTxIn script redeemer = addScriptWithdrawal s
 {- | Add a certificate (stake delegation, stake pool registration, etc)
 to the transaction
 -}
-addCertificate :: (MonadBuildTx era m, C.IsShelleyBasedEra era) => C.Certificate era -> m ()
+addCertificate :: forall era m. (MonadBuildTx era m, C.IsBabbageBasedEra era) => Certificate (C.ShelleyLedgerEra era) -> m ()
 addCertificate cert =
-  let witness = (,C.KeyWitness C.KeyWitnessForStakeAddr) <$> C.selectStakeCredentialWitness cert
+  let witness = case cert of
+        Certificate crt -> (,C.KeyWitness C.KeyWitnessForStakeAddr) <$> (fmap C.fromShelleyStakeCredential . Ledger.lookupRegStakeTxCert) crt
    in addBtx (over (L.txCertificates . L._TxCertificates) ((cert, C.BuildTxWith witness) OMap.|<))
 
 -- | Create a 'C.StakeCredential' registration as a ConwayCertificate to the transaction.
@@ -958,49 +964,50 @@ mkConwayStakeCredentialRegistrationCertificate
   :: forall era m
    . ( C.IsConwayBasedEra era
      , MonadBlockchain era m
+     , Ex.IsEra era
      )
   => C.StakeCredential
-  -> m (C.Certificate era)
+  -> m (Certificate (Ex.LedgerEra era))
 mkConwayStakeCredentialRegistrationCertificate stakeCred = do
   deposit <-
     C.conwayEraOnwardsConstraints @era C.conwayBasedEra $
       view (Ledger.ppKeyDepositL @(C.ShelleyLedgerEra era)) . C.unLedgerProtocolParameters <$> queryProtocolParameters
-  pure $ C.makeStakeAddressRegistrationCertificate $ C.StakeAddrRegistrationConway C.conwayBasedEra deposit stakeCred
+  pure (Ex.makeStakeAddressRegistrationCertificate @era stakeCred deposit)
 
 -- | Create a certificate for delegation to some delegatee in a ConwayCertificate to the transaction.
 mkConwayStakeCredentialDelegationCertificate
   :: forall era
-   . (C.IsConwayBasedEra era)
+   . (Ex.IsEra era)
   => C.StakeCredential
-  -> ConwayTxCert.Delegatee
-  -> C.Certificate era
+  -> Delegatee era
+  -> (Certificate (Ex.LedgerEra era))
 mkConwayStakeCredentialDelegationCertificate stakeCred =
-  C.makeStakeAddressDelegationCertificate
-    . C.StakeDelegationRequirementsConwayOnwards C.conwayBasedEra stakeCred
+  Ex.makeStakeAddressDelegationCertificate stakeCred
 
 -- | Create a 'C.StakeCredential' and delegate to some delegatee in a single ConwayCertificate to the transaction.
 mkConwayStakeCredentialRegistrationAndDelegationCertificate
   :: forall era m
    . ( C.IsConwayBasedEra era
      , MonadBlockchain era m
+     , Ex.IsEra era
      )
   => C.StakeCredential
   -> ConwayTxCert.Delegatee
-  -> m (C.Certificate era)
+  -> m (Certificate (Ex.LedgerEra era))
 mkConwayStakeCredentialRegistrationAndDelegationCertificate stakeCred delegatee = do
   deposit <-
     C.conwayEraOnwardsConstraints @era C.conwayBasedEra $
       view (Ledger.ppKeyDepositL @(C.ShelleyLedgerEra era)) . C.unLedgerProtocolParameters <$> queryProtocolParameters
-  let cert = C.makeStakeAddressAndDRepDelegationCertificate C.conwayBasedEra stakeCred delegatee deposit
+  let cert = Ex.makeStakeAddressAndDRepDelegationCertificate stakeCred delegatee deposit
   pure cert
 
 -- | Add a 'C.StakeCredential' as a ConwayEra and onwards deregistration certificate to the transaction.
 mkConwayStakeCredentialUnRegistrationCertificate
   :: forall era
-   . (C.IsConwayBasedEra era)
+   . (Ex.IsEra era)
   => C.StakeCredential
   -> Ledger.Coin
   -- ^ Deposit, if present, must match the amount that was left as a deposit upon stake credential registration.
-  -> C.Certificate era
-mkConwayStakeCredentialUnRegistrationCertificate stakeCred deposit =
-  C.makeStakeAddressUnregistrationCertificate $ C.StakeAddrRegistrationConway C.conwayBasedEra deposit stakeCred
+  -> (Certificate (Ex.LedgerEra era))
+mkConwayStakeCredentialUnRegistrationCertificate stakeCred =
+  Ex.makeStakeAddressUnregistrationCertificate stakeCred

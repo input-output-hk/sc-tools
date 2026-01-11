@@ -63,12 +63,14 @@ instance ToJSON BlueprintScriptVersion where
     C.PlutusScriptV1 -> toJSON @String "v1"
     C.PlutusScriptV2 -> toJSON @String "v2"
     C.PlutusScriptV3 -> toJSON @String "v3"
+    C.PlutusScriptV4 -> toJSON @String "v4"
 
 instance FromJSON BlueprintScriptVersion where
   parseJSON = fmap (fmap BlueprintScriptVersion) $ Aeson.withText "BlueprintScriptVersion" $ \x -> case T.unpack x of
     "v1" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV1)
     "v2" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV2)
     "v3" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV3)
+    "v4" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV4)
     v -> fail $ "Unexpected plutus script version: " <> v
 
 data Blueprint = Blueprint

@@ -90,7 +90,7 @@ eraHistory =
   -- \$ Ouroboros.summaryWithExactly list)
 
   one = nonEmptyHead $ Ouroboros.getSummary $ Ouroboros.neverForksSummary epochSize slotLength window
-  list = Exactly $ K one :* K one :* K one :* K one :* K one :* K one :* K one :* Nil
+  list = Exactly $ K one :* K one :* K one :* K one :* K one :* K one :* K one :* K one :* Nil
 
   -- NB: Not sure what to put here. Looks like this is usually 2 * max-rollbacks.
   window = Ouroboros.GenesisWindow (2 * 2160)
@@ -119,8 +119,8 @@ protocolParameters =
             & L.hkdMinFeeAL .~ 44
             & L.hkdMinFeeBL .~ 155_381
             & L.hkdKeyDepositL .~ 2_000_000
-            & L.hkdPoolDepositL .~ 500_000_000
-            & L.hkdDRepDepositL .~ 500_000_000
+            & L.hkdPoolDepositCompactL .~ L.toCompactPartial 500_000_000
+            & L.hkdDRepDepositCompactL .~ L.toCompactPartial 500_000_000
             & L.hkdCoinsPerUTxOByteL .~ L.CoinPerByte 4_310
             & L.hkdPricesL
               .~ L.Prices
@@ -821,6 +821,7 @@ genesisDefaultsFromParams params@NodeParams{npNetworkId} =
         C.ShelleyBasedEraAlonzo -> downgradeAlonzo
         C.ShelleyBasedEraBabbage -> downgradeBabbage
         C.ShelleyBasedEraConway -> downgradeConway
+        C.ShelleyBasedEraDijkstra -> downgradeDijkstra
     }
  where
   d = fromMaybe (error "3 % 5 should be valid UnitInterval") $ boundRational (3 % 5)
@@ -839,6 +840,9 @@ genesisDefaultsFromParams params@NodeParams{npNetworkId} =
 
   downgradeConway :: PParams (C.ShelleyLedgerEra C.ConwayEra) -> PParams (C.ShelleyLedgerEra C.ShelleyEra)
   downgradeConway = downgradeBabbage . downgradePParams ()
+
+  downgradeDijkstra :: PParams (C.ShelleyLedgerEra C.DijkstraEra) -> PParams (C.ShelleyLedgerEra C.ShelleyEra)
+  downgradeDijkstra = downgradeConway . downgradePParams ()
 
 -- | Convert `Params` to cardano-ledger `PParams`
 pParams :: NodeParams era -> PParams (C.ShelleyLedgerEra era)
