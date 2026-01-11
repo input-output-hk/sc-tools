@@ -5,6 +5,7 @@
 module Convex.MockChain.Staking (registerPool) where
 
 import Cardano.Api qualified as C
+import Cardano.Api.Experimental.Certificate qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Core qualified as Ledger
 import Control.Lens ((^.))
@@ -44,18 +45,14 @@ registerPool wallet = case C.conwayBasedEra @era of
 
     pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
     let
-      stakeCert =
-        C.makeStakeAddressRegistrationCertificate
-          . C.StakeAddrRegistrationConway C.ConwayEraOnwardsConway (pp ^. Ledger.ppKeyDepositL)
-          $ stakeCred
+      stakeCert' = Ex.makeStakeAddressRegistrationCertificate stakeCred (pp ^. Ledger.ppKeyDepositL)
       stakeAddress = C.makeStakeAddress Defaults.networkId stakeCred
 
       stakePoolVerKey = C.getVerificationKey stakePoolKey
       poolId = C.verificationKeyHash stakePoolVerKey
 
       delegationCert =
-        C.makeStakeAddressDelegationCertificate $
-          C.StakeDelegationRequirementsConwayOnwards C.ConwayEraOnwardsConway stakeCred (Ledger.DelegStake $ C.unStakePoolKeyHash poolId)
+        Ex.makeStakeAddressDelegationCertificate stakeCred (Ledger.DelegStake $ C.unStakePoolKeyHash poolId)
 
       stakePoolParams =
         C.StakePoolParameters
@@ -70,13 +67,10 @@ registerPool wallet = case C.conwayBasedEra @era of
           Nothing
 
       poolCert =
-        C.makeStakePoolRegistrationCertificate
-          . C.StakePoolRegistrationRequirementsConwayOnwards C.ConwayEraOnwardsConway
-          . C.toShelleyPoolParams
-          $ stakePoolParams
+        Ex.makeStakePoolRegistrationCertificate (C.toShelleyPoolParams stakePoolParams)
 
       stakeCertTx = BuildTx.execBuildTx $ do
-        BuildTx.addCertificate stakeCert
+        BuildTx.addCertificate stakeCert'
 
       poolCertTx = BuildTx.execBuildTx $ do
         BuildTx.addCertificate poolCert
