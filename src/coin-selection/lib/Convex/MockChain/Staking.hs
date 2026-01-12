@@ -6,6 +6,7 @@ module Convex.MockChain.Staking (registerPool) where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental.Certificate qualified as Ex
+import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Core qualified as Ledger
 import Control.Lens ((^.))
@@ -45,7 +46,7 @@ registerPool wallet = case C.conwayBasedEra @era of
 
     pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
     let
-      stakeCert' = Ex.makeStakeAddressRegistrationCertificate stakeCred (pp ^. Ledger.ppKeyDepositL)
+      stakeCert = Ex.makeStakeAddressRegistrationCertificate stakeCred (pp ^. Ledger.ppKeyDepositL)
       stakeAddress = C.makeStakeAddress Defaults.networkId stakeCred
 
       stakePoolVerKey = C.getVerificationKey stakePoolKey
@@ -70,13 +71,13 @@ registerPool wallet = case C.conwayBasedEra @era of
         Ex.makeStakePoolRegistrationCertificate (C.toShelleyPoolParams stakePoolParams)
 
       stakeCertTx = BuildTx.execBuildTx $ do
-        BuildTx.addCertificate stakeCert'
+        BuildTx.addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
 
       poolCertTx = BuildTx.execBuildTx $ do
-        BuildTx.addCertificate poolCert
+        BuildTx.addCertificate poolCert Ex.AnyKeyWitnessPlaceholder
 
       delegCertTx = BuildTx.execBuildTx $ do
-        BuildTx.addCertificate delegationCert
+        BuildTx.addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
 
     void $ tryBalanceAndSubmit mempty wallet stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
     void $ tryBalanceAndSubmit mempty wallet poolCertTx TrailingChange [C.WitnessStakeKey stakeKey, C.WitnessStakePoolKey stakePoolKey]
