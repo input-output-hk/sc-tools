@@ -6,19 +6,16 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-import Debug.Trace qualified as Debug
-
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental.Certificate qualified as Ex
 import Cardano.Api.Experimental.Era qualified as Ex
 import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Api qualified as Ledger
-import Cardano.Ledger.BaseTypes (Mismatch (..), StrictMaybe (..))
+import Cardano.Ledger.BaseTypes (Mismatch (..))
 import Cardano.Ledger.Conway.PParams qualified as Ledger
 import Cardano.Ledger.Conway.Rules qualified as Rules
 import Cardano.Ledger.Shelley.API (ApplyTxError (..))
-import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Control.Lens (view, (&), (.~), (^.), _3, _4)
 import Control.Monad (replicateM, void, when)
 import Control.Monad.Except (MonadError, runExceptT)
@@ -463,25 +460,13 @@ registerStakeCredentialNoWitness
    . ( MonadMockchain era m
      , MonadError (BalanceTxError era) m
      , MonadFail m
-     , Ex.IsEra era
-     , C.IsConwayBasedEra era
-     , --  , C.ShelleyLedgerEra era ~ Ex.LedgerEra era
-       era ~ C.ConwayEra
+     , era ~ C.ConwayEra
      )
   => m C.TxIn
 registerStakeCredentialNoWitness = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
   txBody <- BuildTx.execBuildTxT $ do
-    let cert =
-          Ledger.ConwayTxCertDeleg $
-            Ledger.ConwayRegCert
-              (C.toShelleyStakeCredential scriptStakingCredential)
-              SNothing
-    BuildTx.addCertificateNoWitness (Ex.Certificate cert)
+    BuildTx.addConwayRegCertNoWitness @era scriptStakingCredential
   txi <- C.TxIn . C.getTxId . C.getTxBody <$> tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [] <*> pure (C.TxIx 0)
-
-  (rewards, delegations) <- queryStakeAddresses (Set.fromList [scriptStakingCredential]) Defaults.networkId
-
-  Debug.traceM $ show delegations
 
   balanceAndSubmit mempty Wallet.w1 txBody TrailingChange [] >>= \case
     Left e | List.isInfixOf "StakeKeyRegisteredDELEG" (show e) -> pure ()

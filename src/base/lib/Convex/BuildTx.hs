@@ -89,7 +89,8 @@ module Convex.BuildTx (
   addWithdrawZeroPlutusV2InTransaction,
   addWithdrawZeroPlutusV2Reference,
   addCertificate,
-  addCertificateNoWitness,
+  addConwayRegCertNoWitness,
+  addConwayUnRegCertNoWitness,
   mkConwayStakeCredentialRegistrationCertificate,
   mkConwayStakeCredentialDelegationCertificate,
   mkConwayStakeCredentialRegistrationAndDelegationCertificate,
@@ -135,14 +136,10 @@ import Cardano.Api (
   WitCtxTxIn,
  )
 import Cardano.Api qualified as C
-import Cardano.Api.Certificate qualified as Cert
 import Cardano.Api.Compatible.Certificate (Delegatee)
 import Cardano.Api.Experimental qualified as Ex
 import Cardano.Api.Experimental.Certificate (Certificate (..))
-import Cardano.Api.Experimental.Certificate qualified as Ex
-import Cardano.Api.Experimental.Era qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
-import Cardano.Api.Tx qualified
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Conway.TxCert qualified as ConwayTxCert (Delegatee (..))
 import Control.Lens (
@@ -957,19 +954,35 @@ addWithdrawZeroPlutusV2Reference refTxIn script redeemer = addScriptWithdrawal s
 {- | Add a certificate (stake delegation, stake pool registration, etc)
 to the transaction
 -}
-addCertificate :: forall era m. (MonadBuildTx era m, C.IsBabbageBasedEra era, Ex.IsEra era) => Certificate (C.ShelleyLedgerEra era) -> Ex.AnyWitness (Ex.LedgerEra era) -> m ()
+addCertificate :: forall era m. (MonadBuildTx era m, Ex.IsEra era) => Certificate (C.ShelleyLedgerEra era) -> Ex.AnyWitness (Ex.LedgerEra era) -> m ()
 addCertificate cert wit =
   addBtx (set L.txCertificates (Ex.mkTxCertificates [(cert, wit)]))
 
-{- | Add a certificate without witness (stake delegation, stake pool registration, etc)
-to the transaction
+{- | Add a conway stake credential registration certificate without witness.
+This is only possible in the Conway.
 -}
-addCertificateNoWitness :: forall era m. (MonadBuildTx era m, C.IsBabbageBasedEra era, Ex.IsEra era) => Certificate (C.ShelleyLedgerEra era) -> m ()
-addCertificateNoWitness cert =
-  addBtx (over (L.txCertificates . L._TxCertificates) ((cert, C.BuildTxWith Nothing) OMap.|<))
+addConwayRegCertNoWitness :: forall era m. (era ~ C.ConwayEra, MonadBuildTx era m, C.IsBabbageBasedEra era) => C.StakeCredential -> m ()
+addConwayRegCertNoWitness cert' = do
+  let cert :: Certificate (C.ShelleyLedgerEra era) =
+        Ex.Certificate $
+          Ledger.ConwayTxCertDeleg $
+            Ledger.ConwayRegCert
+              (C.toShelleyStakeCredential cert')
+              Ledger.SNothing
+  addBtx (over (L.txCertificates . L._TxCertificates) ((cert, pure $ Just (cert', C.KeyWitness C.KeyWitnessForStakeAddr)) OMap.|<))
 
--- addBtx (set L.txCertificates (Cardano.Api.Tx.mkTxCertificates C.shelleyBasedEra [(cert, Nothing)]))
--- addBtx (set L.txCertificates $ C.TxCertificates C.shelleyBasedEra $ fromList [(cert, pure Nothing)])
+{- | Add a conway stake credential unregistration certificate without witness.
+This is only possible in the Conway.
+-}
+addConwayUnRegCertNoWitness :: forall era m. (era ~ C.ConwayEra, MonadBuildTx era m, C.IsBabbageBasedEra era) => C.StakeCredential -> m ()
+addConwayUnRegCertNoWitness cert' = do
+  let cert :: Certificate (C.ShelleyLedgerEra era) =
+        Ex.Certificate $
+          Ledger.ConwayTxCertDeleg $
+            Ledger.ConwayUnRegCert
+              (C.toShelleyStakeCredential cert')
+              Ledger.SNothing
+  addBtx (over (L.txCertificates . L._TxCertificates) ((cert, pure $ Just (cert', C.KeyWitness C.KeyWitnessForStakeAddr)) OMap.|<))
 
 -- | Create a 'C.StakeCredential' registration as a ConwayCertificate to the transaction.
 mkConwayStakeCredentialRegistrationCertificate
