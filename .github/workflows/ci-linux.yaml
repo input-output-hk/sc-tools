@@ -52,6 +52,7 @@ jobs:
       - name: build & test
         run: |
           nix develop .#ghc966 -c bash -lc '
+            cabal update
             cabal build --ghc-options=-Werror -j all
             cabal test --ghc-options=-Werror all
           '
