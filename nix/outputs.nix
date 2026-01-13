@@ -9,16 +9,17 @@ let
 
   project = import ./project.nix { inherit inputs pkgs lib; };
 
-  mkShell = ghc: import ./shell.nix { inherit inputs pkgs lib project utils ghc system; };
+  mkShell = { ghc, withHoogle ? true }: import ./shell.nix { inherit inputs pkgs lib project utils ghc system withHoogle; };
 
   packages = { };
 
   devShells = rec {
     default = ghc966; 
-    ghc966 = mkShell "ghc966"; 
-    # ghc984 = mkShell "ghc984"; 
-    # ghc9102 = mkShell "ghc9102"; 
-    # ghc9122 = mkShell "ghc9122"; 
+    ghc966 = mkShell { ghc = "ghc966"; }; 
+    ghc966-nohoogle = mkShell { ghc = "ghc966"; withHoogle = false; }; 
+    # ghc984 = mkShell { ghc = "ghc984"; }; 
+    # ghc9102 = mkShell { ghc = "ghc9102"; }; 
+    # ghc9122 = mkShell { ghc = "ghc9122"; }; 
   };
 
   projectFlake = project.flake {};
@@ -51,4 +52,3 @@ in
   # Explore the project via nix repl '.#'
   project = project;
 }
-

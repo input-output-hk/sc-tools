@@ -19,6 +19,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsystemd-dev
 
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /usr/local/share/chromium || true
+          sudo apt-get clean
+          sudo nix-collect-garbage -d || true
+          df -h
+
       - name: Install system dependencies
         uses: input-output-hk/actions/base@latest
 
@@ -45,13 +53,13 @@ jobs:
 
       - name: Prepare dependencies and build environment
         run: |
-          nix develop .#ghc966 -c bash -lc 'ghc --version'
-          nix develop .#ghc966 -c bash -lc 'cabal update'
+          nix develop .#ghc966-nohoogle -c bash -lc 'ghc --version'
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal update'
 
       - name: Build
         run: |
-          nix develop .#ghc966 -c bash -lc 'cabal build --ghc-options=-Werror -j all'
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal build --ghc-options=-Werror -j all'
 
       - name: Test
         run: |
-          nix develop .#ghc966 -c bash -lc 'cabal test --ghc-options=-Werror all'
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal test --ghc-options=-Werror all'

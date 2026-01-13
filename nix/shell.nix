@@ -1,4 +1,4 @@
-{ inputs, pkgs, lib, project, utils, ghc, system }:
+{ inputs, pkgs, lib, project, utils, ghc, system, withHoogle ? true }:
 
 let
 
@@ -111,7 +111,7 @@ let
       linuxPkgs
     ];
 
-    withHoogle = true;
+    withHoogle = withHoogle;
 
     shellHook = ''
       ${preCommitCheck.shellHook}
@@ -124,4 +124,3 @@ let
 in
 
 shell
-
