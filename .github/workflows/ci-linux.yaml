@@ -43,13 +43,10 @@ jobs:
           path: ~/.cabal/store
           key: cabal-${{ hashFiles('cabal.project') }}
 
-      - name: Build dependencies for integration test
+      - name: Build convex-wallet via Nix (uses caches)
         run: |
-          nix develop .#ghc966 -c bash -lc '
-            cabal update
-            cabal install -j convex-wallet --overwrite-policy=always
-            echo "$HOME/.cabal/bin" >> "$GITHUB_PATH"
-          '
+          nix build .#convex-wallet
+          echo "${GITHUB_WORKSPACE}/result/bin" >> "$GITHUB_PATH"
 
       - name: build & test
         run: |
