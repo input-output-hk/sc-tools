@@ -43,9 +43,10 @@ jobs:
           path: ~/.cabal/store
           key: cabal-${{ hashFiles('cabal.project') }}
 
-      - name: Build convex-wallet via Nix (uses caches)
+      - name: Build convex-wallet (cardano-node/cli from Nix)
         run: |
-          nix build .#convex-wallet
+          system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
+          nix build ".#packages.${system}.convex-wallet:exe:convex-wallet"
           echo "${GITHUB_WORKSPACE}/result/bin" >> "$GITHUB_PATH"
 
       - name: build & test
