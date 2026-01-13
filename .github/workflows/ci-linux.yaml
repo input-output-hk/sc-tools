@@ -31,12 +31,6 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Use Cachix binary cache
-        uses: cachix/cachix-action@v15
-        with:
-          name: sc-tools
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
       - name: Cache .cabal
         uses: actions/cache@v3
         with:
