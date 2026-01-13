@@ -10,6 +10,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      NIX_CONFIG: accept-flake-config = true
     steps:
       # install deps.
       - name: install dependencies
@@ -20,30 +22,38 @@ jobs:
       - name: Install system dependencies
         uses: input-output-hk/actions/base@latest
 
-
-      - uses: haskell-actions/setup@v2
-        id: cabal-setup
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          ghc-version: '9.6.6'
-          cabal-version: '3.10.3.0'
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            accept-flake-config = true
 
       - uses: actions/checkout@v4
+
+      - name: Use Cachix binary cache
+        uses: cachix/cachix-action@v15
+        with:
+          name: sc-tools
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
       - name: Cache .cabal
         uses: actions/cache@v3
         with:
-          path: ${{ steps.cabal-setup.outputs.cabal-store }}
+          path: ~/.cabal/store
           key: cabal-${{ hashFiles('cabal.project') }}
 
       - name: Build dependencies for integration test
         run: |
-          cabal update
-          cabal install -j cardano-node-10.1.4 cardano-cli --overwrite-policy=always
-          cabal install -j convex-wallet --overwrite-policy=always
-          echo "/home/runner/.cabal/bin" >> $GITHUB_PATH
+          nix develop .#ghc966 -c bash -lc '
+            cabal update
+            cabal install -j convex-wallet --overwrite-policy=always
+            echo "$HOME/.cabal/bin" >> "$GITHUB_PATH"
+          '
 
       - name: build & test
         run: |
-          cabal build --ghc-options=-Werror -j all
-          cabal test --ghc-options=-Werror all
-
+          nix develop .#ghc966 -c bash -lc '
+            cabal build --ghc-options=-Werror -j all
+            cabal test --ghc-options=-Werror all
+          '
