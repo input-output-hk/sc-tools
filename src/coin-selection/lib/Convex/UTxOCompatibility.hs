@@ -65,15 +65,20 @@ scriptWitnessCompat (C.PlutusScriptWitness lang _ _ _ _ _) = case lang of
   C.PlutusScriptV1InAlonzo -> PlutusV1Compatibility
   C.PlutusScriptV1InBabbage -> PlutusV1Compatibility
   C.PlutusScriptV1InConway -> PlutusV1Compatibility
+  C.PlutusScriptV1InDijkstra -> PlutusV1Compatibility
   C.PlutusScriptV2InBabbage -> AnyCompatibility
   C.PlutusScriptV2InConway -> AnyCompatibility
+  C.PlutusScriptV2InDijkstra -> AnyCompatibility
   C.PlutusScriptV3InConway -> AnyCompatibility
+  C.PlutusScriptV3InDijkstra -> AnyCompatibility
+  C.PlutusScriptV4InDijkstra -> AnyCompatibility
   C.SimpleScriptInShelley -> AnyCompatibility
   C.SimpleScriptInAllegra -> AnyCompatibility
   C.SimpleScriptInMary -> AnyCompatibility
   C.SimpleScriptInAlonzo -> AnyCompatibility
   C.SimpleScriptInBabbage -> AnyCompatibility
   C.SimpleScriptInConway -> AnyCompatibility
+  C.SimpleScriptInDijkstra -> AnyCompatibility
 scriptWitnessCompat (C.SimpleScriptWitness _ _) = AnyCompatibility
 
 -- | Compatibility level of the transaction
