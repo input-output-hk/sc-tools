@@ -6,7 +6,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-
 -- To pattern-match on the C.ShelleyBlock
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
@@ -121,7 +120,7 @@ main = do
 
 checkCardanoNode :: IO ()
 checkCardanoNode = do
-  let expectedVersion = "10.1.4"
+  let expectedVersion = "10.6.1"
   version <- getCardanoNodeVersion
   let isExpected = expectedVersion `isInfixOf` version
   unless isExpected (putStrLn version)
