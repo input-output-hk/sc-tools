@@ -49,10 +49,15 @@ jobs:
           nix build ".#packages.${system}.convex-wallet:exe:convex-wallet"
           echo "${GITHUB_WORKSPACE}/result/bin" >> "$GITHUB_PATH"
 
-      - name: build & test
+      - name: Prepare dependencies and build environment
         run: |
-          nix develop .#ghc966 -c bash -lc '
-            cabal update
-            cabal build --ghc-options=-Werror -j all
-            cabal test --ghc-options=-Werror all
-          '
+          nix develop .#ghc966 -c bash -lc 'ghc --version'
+          nix develop .#ghc966 -c bash -lc 'cabal update'
+
+      - name: Build
+        run: |
+          nix develop .#ghc966 -c bash -lc 'cabal build --ghc-options=-Werror -j all'
+
+      - name: Test
+        run: |
+          nix develop .#ghc966 -c bash -lc 'cabal test --ghc-options=-Werror all'
