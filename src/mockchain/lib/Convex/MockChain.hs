@@ -481,7 +481,6 @@ instance (Monad m, C.IsConwayBasedEra era, C.IsEra era, EraStake (C.ShelleyLedge
 
   -- Map C.StakeAddress C.Quantity, Map C.StakeAddress C.PoolId
   queryStakeAddresses creds nid = MockchainT $ C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $ do
-    dState <- gets (view $ poolState . lsCertStateL . certDStateL)
     accountsMap <- gets (view $ poolState . lsCertStateL . certDStateL . accountsL . accountsMapL)
     let
       creds' = toLedgerStakeCredentials creds
