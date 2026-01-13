@@ -31,14 +31,13 @@ import Cardano.Api (
   NetworkId,
   OperationalCertificateIssueCounter (..),
   StakeAddressReference (..),
-  StakeAddressRequirements (..),
   StakeCredential (..),
-  StakeDelegationRequirements (..),
   StakePoolParameters (..),
-  StakePoolRegistrationRequirements (..),
   toShelleyPoolParams,
  )
 import Cardano.Api qualified as C
+import Cardano.Api.Experimental.Certificate qualified as Ex
+import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Conway.TxCert qualified as L
 import Cardano.Slotting.Slot (withOriginToMaybe)
@@ -551,9 +550,7 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
     stakeCred = StakeCredentialByKey stakeHash
 
     stakeCert =
-      C.makeStakeAddressRegistrationCertificate
-        . StakeAddrRegistrationConway C.ConwayEraOnwardsConway (pp ^. Ledger.ppKeyDepositL)
-        $ stakeCred
+      Ex.makeStakeAddressRegistrationCertificate stakeCred (pp ^. Ledger.ppKeyDepositL)
     stakeAddress = C.makeStakeAddress rnNetworkId stakeCred
 
     paymentAddress =
@@ -567,8 +564,9 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
     poolId = C.verificationKeyHash stakePoolVerKey
 
     delegationCert =
-      C.makeStakeAddressDelegationCertificate $
-        StakeDelegationRequirementsConwayOnwards C.ConwayEraOnwardsConway stakeCred (L.DelegStake $ C.unStakePoolKeyHash poolId)
+      Ex.makeStakeAddressDelegationCertificate
+        stakeCred
+        (L.DelegStake $ C.unStakePoolKeyHash poolId)
 
     stakePoolParams =
       StakePoolParameters
@@ -583,10 +581,8 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
         Nothing
 
     poolCert =
-      C.makeStakePoolRegistrationCertificate
-        . StakePoolRegistrationRequirementsConwayOnwards C.ConwayEraOnwardsConway
-        . toShelleyPoolParams
-        $ stakePoolParams
+      Ex.makeStakePoolRegistrationCertificate
+        (toShelleyPoolParams stakePoolParams)
 
   -- create the node certificate
   let
@@ -607,16 +603,16 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
 
   let
     stakeCertTx = execBuildTx $ do
-      addCertificate stakeCert
+      addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
 
     poolCertTx = execBuildTx $ do
       let pledge = spnPledge params
       when (pledge > 0) $
         payToAddress paymentAddress (C.lovelaceToValue pledge)
-      addCertificate poolCert
+      addCertificate poolCert Ex.AnyKeyWitnessPlaceholder
 
     delegCertTx = execBuildTx $ do
-      addCertificate delegationCert
+      addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
 
   txSubmissionResults <-
     runExceptT $ do

@@ -959,9 +959,9 @@ addCertificate cert wit =
   addBtx (set L.txCertificates (Ex.mkTxCertificates [(cert, wit)]))
 
 {- | Add a conway stake credential registration certificate without witness.
-This is only possible in the Conway.
+This is only possible in the Conway era.
 -}
-addConwayRegCertNoWitness :: forall era m. (era ~ C.ConwayEra, MonadBuildTx era m, C.IsBabbageBasedEra era) => C.StakeCredential -> m ()
+addConwayRegCertNoWitness :: forall era m. (era ~ C.ConwayEra, MonadBuildTx era m) => C.StakeCredential -> m ()
 addConwayRegCertNoWitness cert' = do
   let cert :: Certificate (C.ShelleyLedgerEra era) =
         Ex.Certificate $
@@ -972,9 +972,9 @@ addConwayRegCertNoWitness cert' = do
   addBtx (over (L.txCertificates . L._TxCertificates) ((cert, pure $ Just (cert', C.KeyWitness C.KeyWitnessForStakeAddr)) OMap.|<))
 
 {- | Add a conway stake credential unregistration certificate without witness.
-This is only possible in the Conway.
+This is only possible in the Conway era.
 -}
-addConwayUnRegCertNoWitness :: forall era m. (era ~ C.ConwayEra, MonadBuildTx era m, C.IsBabbageBasedEra era) => C.StakeCredential -> m ()
+addConwayUnRegCertNoWitness :: forall era m. (era ~ C.ConwayEra, MonadBuildTx era m) => C.StakeCredential -> m ()
 addConwayUnRegCertNoWitness cert' = do
   let cert :: Certificate (C.ShelleyLedgerEra era) =
         Ex.Certificate $

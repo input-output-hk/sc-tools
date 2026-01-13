@@ -72,8 +72,7 @@ import Cardano.Api qualified
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental (Certificate (..))
 import Cardano.Api.Extras (substituteExecutionUnits)
-import Cardano.Api.Ledger (getVKeyWitnessTxCert, lookupUnRegStakeTxCert)
-import Cardano.Api.Ledger qualified as CLedger
+import Cardano.Api.Ledger (getVKeyWitnessTxCert)
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Core (PParams (..), hkdKeyDepositL)
 import Cardano.Ledger.Keys qualified as Keys
@@ -82,7 +81,6 @@ import Cardano.Ledger.Shelley.API (
   KeyHash (..),
   KeyRole (..),
  )
-import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Cardano.Slotting.Time (SystemStart)
 import Control.Lens (
   at,
@@ -841,15 +839,6 @@ requiredSignatureCount txBuilder = inAlonzo @era $ do
   --   maybe Set.empty Set.singleton (getTxCertWitness (C.convert C.ConwayEraOnwardsConway) b)
 
   pure $ TransactionSignatureCount (fromIntegral $ Set.size allSigs + Set.size certKeyWits)
-
-getTxCertWitness
-  :: C.ShelleyBasedEra era
-  -> L.TxCert (C.ShelleyLedgerEra era)
-  -> Maybe (KeyHash Witness)
-getTxCertWitness sbe ledgerCert = C.shelleyBasedEraConstraints sbe $
-  case L.getVKeyWitnessTxCert ledgerCert of
-    Just keyHash -> Just keyHash
-    _ -> Nothing
 
 -- | Certificate key witness
 data CertificateKeyWitness era
