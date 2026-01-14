@@ -129,6 +129,7 @@ data CardanoNodeArgs = CardanoNodeArgs
   , nodeShelleyGenesisFile :: FilePath
   , nodeAlonzoGenesisFile :: FilePath
   , nodeConwayGenesisFile :: FilePath
+  , nodeDijkstraGenesisFile :: FilePath
   , nodeTopologyFile :: FilePath
   , nodeDatabaseDir :: FilePath
   , nodeDlgCertFile :: Maybe FilePath
@@ -148,6 +149,7 @@ defaultCardanoNodeArgs =
     , nodeShelleyGenesisFile = "genesis-shelley.json"
     , nodeAlonzoGenesisFile = "genesis-alonzo.json"
     , nodeConwayGenesisFile = "genesis-conway.json"
+    , nodeDijkstraGenesisFile = "genesis-dijkstra.json"
     , nodeTopologyFile = "topology.json"
     , nodeDatabaseDir = "db"
     , nodeDlgCertFile = Nothing
@@ -412,6 +414,10 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
       >>= copyAndChangeJSONFile
         cfConway
         (stateDirectory </> nodeConwayGenesisFile args)
+    readConfigFile ("devnet" </> "genesis-dijkstra.json")
+      >>= copyAndChangeJSONFile
+        cfConway
+        (stateDirectory </> nodeDijkstraGenesisFile args)
 
 writeTopology :: [Port] -> FilePath -> CardanoNodeArgs -> IO ()
 writeTopology peers stateDirectory args =
@@ -476,7 +482,7 @@ refreshSystemStart stateDirectory args = do
 -- | Generate a topology file from a list of peers.
 mkTopology :: [Port] -> Aeson.Value
 mkTopology peers =
-  Aeson.object ["Producers" .= map encodePeer peers]
+  Aeson.object ["Producers" .= map encodePeer peers, "localRoots" .= ([] :: [Int]), "publicRoots" .= ([] :: [Int])]
  where
   encodePeer :: Int -> Aeson.Value
   encodePeer port =
