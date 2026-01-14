@@ -171,9 +171,9 @@ readConfigFile source = do
   BS.readFile filename
 
 {- | Fail some monadic action if it does not complete within given timeout.
-A 'DiffTime' can be represented as a decimal number of seconds.
+  The time is specified in seconds.
 -}
-failAfter :: (HasCallStack, MonadTimer m, MonadThrow m) => DiffTime -> m a -> m a
+failAfter :: (HasCallStack, MonadTimer m, MonadThrow m) => Int -> m a -> m a
 failAfter seconds action =
   let microseconds = seconds * 1_000_000
    in timeout microseconds action >>= \case
