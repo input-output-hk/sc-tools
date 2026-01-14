@@ -22,8 +22,7 @@ import Cardano.Api (
 import Cardano.Api qualified as C
 import Control.Exception (catch, onException)
 import Control.Monad.Class.MonadThrow (MonadThrow, throwIO)
-import Control.Monad.Class.MonadTimer.SI (
-  DiffTime,
+import Control.Monad.Class.MonadTimer (
   MonadTimer,
   timeout,
  )
@@ -172,10 +171,11 @@ readConfigFile source = do
   BS.readFile filename
 
 {- | Fail some monadic action if it does not complete within given timeout.
-A 'DiffTime' can be represented as a decimal number of seconds.
+  The time is specified in seconds.
 -}
-failAfter :: (HasCallStack, MonadTimer m, MonadThrow m) => DiffTime -> m a -> m a
+failAfter :: (HasCallStack, MonadTimer m, MonadThrow m) => Int -> m a -> m a
 failAfter seconds action =
-  timeout seconds action >>= \case
-    Nothing -> failure $ "Test timed out after " <> show seconds <> " seconds"
-    Just a -> pure a
+  let microseconds = seconds * 1_000_000
+   in timeout microseconds action >>= \case
+        Nothing -> failure $ "Test timed out after " <> show seconds <> " seconds"
+        Just a -> pure a

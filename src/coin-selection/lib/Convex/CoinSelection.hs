@@ -70,9 +70,10 @@ import Cardano.Api (
  )
 import Cardano.Api qualified
 import Cardano.Api qualified as C
-import Cardano.Api.Extras (substituteExecutionUnits)
-import Cardano.Api.Ledger qualified as CLedger
+import Cardano.Api.Experimental (Certificate (..))
+import Cardano.Api.Ledger (getVKeyWitnessTxCert)
 import Cardano.Api.Ledger qualified as L
+import Cardano.Api.Tx (substituteExecutionUnits)
 import Cardano.Ledger.Core (PParams (..), hkdKeyDepositL)
 import Cardano.Ledger.Keys qualified as Keys
 import Cardano.Ledger.Shelley.API (
@@ -80,7 +81,6 @@ import Cardano.Ledger.Shelley.API (
   KeyHash (..),
   KeyRole (..),
  )
-import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Cardano.Slotting.Time (SystemStart)
 import Control.Lens (
   at,
@@ -469,14 +469,18 @@ unregBalance :: forall era. (L.EraPParams (C.ShelleyLedgerEra era)) => C.LedgerP
 unregBalance (C.unLedgerProtocolParameters -> PParams phkd) txbodycontent =
   let (deposit :: Coin) = view (hkdKeyDepositL @_ @Identity) phkd
       certs = txbodycontent ^. L.txCertificates
-      toUnregCert :: C.Certificate era -> Maybe (C.StakeCredential, Coin)
-      toUnregCert (C.ConwayCertificate _ (CLedger.ConwayTxCertDeleg (CLedger.ConwayUnRegCert cred (CLedger.SJust a)))) = Just (C.fromShelleyStakeCredential cred, a)
-      toUnregCert (C.ConwayCertificate _ (CLedger.ConwayTxCertDeleg (CLedger.ConwayUnRegCert cred CLedger.SNothing))) = Just (C.fromShelleyStakeCredential cred, deposit)
-      toUnregCert (C.ShelleyRelatedCertificate _ (CLedger.ShelleyTxCertDelegCert (CLedger.ShelleyUnRegCert cred))) = Just (C.fromShelleyStakeCredential cred, deposit)
-      toUnregCert _ = Nothing
+
+      toUnregCert
+        :: (Certificate (C.ShelleyLedgerEra era), C.BuildTxWith BuildTx (Maybe (C.StakeCredential, C.Witness C.WitCtxStake era)))
+        -> Maybe (C.StakeCredential, Coin)
+      toUnregCert (_, C.BuildTxWith Nothing) = Nothing
+      toUnregCert (_, C.BuildTxWith (Just (k, _))) = Just (k, deposit)
    in case certs of
         C.TxCertificatesNone -> mempty
-        C.TxCertificates _ cs -> Map.fromList $ mapMaybe (toUnregCert . fst) $ OMap.toAscList cs
+        C.TxCertificates _ cs ->
+          Map.fromList $
+            mapMaybe toUnregCert $
+              OMap.toAscList cs
 
 txOutChange :: forall era ctx. (C.IsMaryBasedEra era) => TxOut ctx era -> BalanceChanges
 txOutChange (view L._TxOut -> (fmap C.fromShelleyPaymentCredential . preview (inMary @era L._AddressInEra . L._Address . _2) -> Just addr, view L._TxOutValue -> value, _, _)) =
@@ -821,28 +825,20 @@ requiredSignatureCount txBuilder = inAlonzo @era $ do
         C.TxCertificates _ cs -> mconcat $ getCertKeyWits . fst <$> OMap.toAscList cs
         C.TxCertificatesNone -> Set.empty
 
-      getCertKeyWits :: C.Certificate era -> Set (KeyHash Witness)
-      {- Certificates that don't require a witness:
-      \* For a DCertregkey certificate, cwitness is not defined as stake key
-      registrations do not require a witness. (See SL-D5)
-      \* For a DCertmir certificate, cwitness is not defined as there is no
-      single core node or genesis key that posts the certificate. (See SL-D5)
-      -}
-      getCertKeyWits (C.ShelleyRelatedCertificate _era b) =
-        maybe Set.empty Set.singleton (TxCert.getVKeyWitnessShelleyTxCert b)
-      getCertKeyWits (C.ConwayCertificate C.ConwayEraOnwardsConway b) =
-        maybe Set.empty Set.singleton (getTxCertWitness (C.convert C.ConwayEraOnwardsConway) b)
+      getCertKeyWits :: Certificate (C.ShelleyLedgerEra era) -> Set (KeyHash Witness)
+      getCertKeyWits (Certificate k) = maybe mempty Set.singleton (getVKeyWitnessTxCert k)
+  {- Certificates that don't require a witness:
+  \* For a DCertregkey certificate, cwitness is not defined as stake key
+  registrations do not require a witness. (See SL-D5)
+  \* For a DCertmir certificate, cwitness is not defined as there is no
+  single core node or genesis key that posts the certificate. (See SL-D5)
+  -}
+  -- getCertKeyWits (C.ShelleyRelatedCertificate _era b) =
+  --   maybe Set.empty Set.singleton (TxCert.getVKeyWitnessShelleyTxCert b)
+  -- getCertKeyWits (C.ConwayCertificate C.ConwayEraOnwardsConway b) =
+  --   maybe Set.empty Set.singleton (getTxCertWitness (C.convert C.ConwayEraOnwardsConway) b)
 
   pure $ TransactionSignatureCount (fromIntegral $ Set.size allSigs + Set.size certKeyWits)
-
-getTxCertWitness
-  :: C.ShelleyBasedEra era
-  -> L.TxCert (C.ShelleyLedgerEra era)
-  -> Maybe (KeyHash Witness)
-getTxCertWitness sbe ledgerCert = C.shelleyBasedEraConstraints sbe $
-  case L.getVKeyWitnessTxCert ledgerCert of
-    Just keyHash -> Just keyHash
-    _ -> Nothing
 
 -- | Certificate key witness
 data CertificateKeyWitness era

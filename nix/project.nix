@@ -38,7 +38,8 @@ let
           convex-tx-mod.ghcOptions = [ "-Werror" ];
           convex-wallet.ghcOptions = [ "-Werror" ];
         };
-      }];
+      }      
+      ];
     }
   );
 

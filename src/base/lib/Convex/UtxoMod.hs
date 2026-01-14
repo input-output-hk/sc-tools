@@ -92,3 +92,8 @@ replaceHashAnyLang oldHash newHash = \case
     let oldScriptHash = C.hashScript script
         newScriptHash = C.hashScript new
     pure (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) new, guard (oldScriptHash /= newScriptHash) $> newScriptHash)
+  C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV4) script -> do
+    new <- replaceHash oldHash newHash script
+    let oldScriptHash = C.hashScript script
+        newScriptHash = C.hashScript new
+    pure (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV4) new, guard (oldScriptHash /= newScriptHash) $> newScriptHash)

@@ -97,6 +97,7 @@ import Cardano.Ledger.BaseTypes (
   getVersion,
   pvMajor,
  )
+import Cardano.Ledger.Conway.State (ConwayEraAccounts (..))
 import Cardano.Ledger.Core qualified as Core
 import Cardano.Ledger.Plutus.Evaluate (
   PlutusWithContext (..),
@@ -104,13 +105,12 @@ import Cardano.Ledger.Plutus.Evaluate (
  )
 import Cardano.Ledger.Plutus.Language (
   LegacyPlutusArgs (..),
-  PlutusArgs (PlutusV1Args, PlutusV2Args, PlutusV3Args),
+  PlutusArgs (PlutusV1Args, PlutusV2Args, PlutusV3Args, PlutusV4Args),
   PlutusScriptContext,
   unPlutusBinary,
  )
 import Cardano.Ledger.Plutus.Language qualified as Plutus.Language
 import Cardano.Ledger.Shelley.API (
-  AccountState (..),
   Coin (..),
   LedgerEnv (..),
   UTxO (..),
@@ -124,18 +124,13 @@ import Cardano.Ledger.Shelley.LedgerState (
   LedgerState (..),
   UTxOState (..),
   certDStateL,
-  delegations,
   lsCertStateL,
-  rewards,
   smartUTxOState,
  )
-import Cardano.Ledger.State (EraStake)
+import Cardano.Ledger.State (ChainAccountState (..), EraStake, accountsL, accountsMapL, balanceAccountStateL, stakePoolDelegationAccountStateL)
 import Cardano.Ledger.UMap (
-  RDPair (..),
-  domRestrictedMap,
   fromCompact,
  )
-import Cardano.Ledger.UMap qualified as Ledger
 import Cardano.Ledger.Val qualified as Val
 import Control.Lens (
   at,
@@ -151,6 +146,7 @@ import Control.Lens (
   _1,
   _3,
  )
+import Control.Lens qualified as L
 import Control.Monad (forM, void, when)
 import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO)
@@ -246,6 +242,9 @@ getFullyAppliedScript params pwc@PlutusWithContext{pwcScript} = do
         Plutus.Language.PlutusV1 -> PlutusV1
         Plutus.Language.PlutusV2 -> PlutusV2
         Plutus.Language.PlutusV3 -> PlutusV3
+        -- TODO: Fix when PlutusLedgerApi.Common.Versions.PlutusLedgerLanguage has a PlutusV4 constructor
+        -- See https://github.com/input-output-hk/sc-tools/issues/299
+        Plutus.Language.PlutusV4 -> error "PlutusV4 not supported in 'plutus-ledger-api-1.56.0.0'"
     pArgs = getPlutusArgs pwc
   scriptForEval <- first show $ Plutus.deserialiseScript lng pv (unPlutusBinary binScript)
   appliedTerm <- first show $ mkTermToEvaluate lng pv scriptForEval pArgs
@@ -277,6 +276,7 @@ plutusArgs args = case Plutus.Language.isLanguage @l of
   Plutus.Language.SPlutusV1 -> getPlutusArgsV1 args
   Plutus.Language.SPlutusV2 -> getPlutusArgsV2 args
   Plutus.Language.SPlutusV3 -> getPlutusArgsV3 args
+  Plutus.Language.SPlutusV4 -> getPlutusArgsV4 args
 
 getPlutusArgsV1 :: PlutusArgs Plutus.Language.PlutusV1 -> [Plutus.Data]
 getPlutusArgsV1 = \case
@@ -289,6 +289,13 @@ getPlutusArgsV2 = \case
 getPlutusArgsV3 :: PlutusArgs Plutus.Language.PlutusV3 -> [Plutus.Data]
 getPlutusArgsV3 = \case
   PlutusV3Args context -> [PV3.toData context]
+
+getPlutusArgsV4 :: PlutusArgs Plutus.Language.PlutusV4 -> [Plutus.Data]
+getPlutusArgsV4 = \case
+  -- FIXME: When PV4 has been added properly we need to check this egain
+  -- to make sure that PV3.toData is the right function to call.
+  -- see https://github.com/input-output-hk/sc-tools/issues/299
+  PlutusV4Args context -> [PV3.toData context]
 
 legacyPlutusArgsToData :: (Plutus.ToData (PlutusScriptContext l)) => LegacyPlutusArgs l -> [Plutus.Data]
 legacyPlutusArgsToData = \case
@@ -330,7 +337,7 @@ initialStateFor params@NodeParams{npNetworkId} utxos =
                 { ledgerSlotNo = 0
                 , ledgerIx = minBound
                 , ledgerPp = Defaults.pParams params
-                , ledgerAccount = AccountState (Coin 0) (Coin 0)
+                , ledgerAccount = ChainAccountState (Coin 0) (Coin 0)
                 , ledgerEpochNo = Nothing
                 }
           , mcsPoolState =
@@ -471,34 +478,37 @@ instance (Monad m, C.IsConwayBasedEra era, C.IsEra era, EraStake (C.ShelleyLedge
     pure (C.UTxO mp')
 
   queryProtocolParameters = MockchainT (asks npProtocolParameters)
+
+  -- Map C.StakeAddress C.Quantity, Map C.StakeAddress C.PoolId
   queryStakeAddresses creds nid = MockchainT $ C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $ do
-    dState <- gets (view $ poolState . lsCertStateL . certDStateL)
+    accountsMap <- gets (view $ poolState . lsCertStateL . certDStateL . accountsL . accountsMapL)
     let
       creds' = toLedgerStakeCredentials creds
-      rewards' = domRestrictedMap creds' (rewards dState)
-      delegations' = domRestrictedMap creds' (delegations dState)
+      restrictedMap = Map.restrictKeys accountsMap creds'
       rewardsMap =
         Map.fromList $
           bimap
             fromLedgerStakeAddress
-            (C.lovelaceToQuantity . fromCompact . rdReward)
-            <$> Map.toList rewards'
+            (C.lovelaceToQuantity . fromCompact . L.view (balanceAccountStateL @(C.ShelleyLedgerEra era)))
+            <$> Map.toList restrictedMap
+      poolIds = Map.mapMaybe (L.view stakePoolDelegationAccountStateL) restrictedMap
       delegationsMap =
         Map.fromList $
           bimap
             fromLedgerStakeAddress
             StakePoolKeyHash
-            <$> Map.toList delegations'
+            <$> Map.toList poolIds
     pure (rewardsMap, delegationsMap)
    where
     toLedgerStakeCredentials creds' = Set.fromList $ C.toShelleyStakeCredential <$> Set.toList creds'
     fromLedgerStakeAddress = C.makeStakeAddress nid . C.fromShelleyStakeCredential
   queryStakePools = MockchainT (asks npStakePools)
+
   queryStakeVoteDelegatees stakeCreds = MockchainT $ C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
-    dState <- gets (view $ poolState . lsCertStateL . certDStateL)
+    accountsMap <- gets (view $ poolState . lsCertStateL . certDStateL . accountsL . accountsMapL)
     let
       creds' = toLedgerStakeCredentials stakeCreds
-      delegatees = domRestrictedMap creds' (Ledger.DRepUView $ Ledger.dsUnified dState)
+      delegatees = Map.mapMaybe (L.view (dRepDelegationAccountStateL @(C.ShelleyLedgerEra era))) $ Map.restrictKeys accountsMap creds'
     pure $
       Map.fromList $
         first

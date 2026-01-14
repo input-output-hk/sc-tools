@@ -1,17 +1,21 @@
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
 import Cardano.Api qualified as C
+import Cardano.Api.Experimental.Certificate qualified as Ex
+import Cardano.Api.Experimental.Era qualified as Ex
+import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.BaseTypes (Mismatch (..))
 import Cardano.Ledger.Conway.PParams qualified as Ledger
 import Cardano.Ledger.Conway.Rules qualified as Rules
 import Cardano.Ledger.Shelley.API (ApplyTxError (..))
-import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Control.Lens (view, (&), (.~), (^.), _3, _4)
 import Control.Monad (replicateM, void, when)
 import Control.Monad.Except (MonadError, runExceptT)
@@ -439,13 +443,15 @@ registerScriptStakingCredential
      , MonadFail m
      , C.IsConwayBasedEra era
      , C.HasScriptLanguageInEra C.PlutusScriptV2 era
+     , C.ShelleyLedgerEra era ~ Ex.LedgerEra era
+     , Ex.IsEra era
      )
   => m C.TxIn
 registerScriptStakingCredential = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
   pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
   txBody <- BuildTx.execBuildTxT $ do
     -- Need this for Conway certificates or we'll be getting 'MissingScriptWitnessesUTXOW'.
-    let cert = C.makeStakeAddressRegistrationCertificate $ C.StakeAddrRegistrationConway C.conwayBasedEra (pp ^. Ledger.ppKeyDepositL) scriptStakingCredential
+    let cert = Ex.makeStakeAddressRegistrationCertificate @era scriptStakingCredential (pp ^. Ledger.ppKeyDepositL)
     BuildTx.addStakeScriptWitness cert scriptStakingCredential Scripts.v2StakingScript ()
   C.TxIn . C.getTxId . C.getTxBody <$> tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [] <*> pure (C.TxIx 0)
 
@@ -454,14 +460,14 @@ registerStakeCredentialNoWitness
    . ( MonadMockchain era m
      , MonadError (BalanceTxError era) m
      , MonadFail m
-     , C.IsConwayBasedEra era
+     , era ~ C.ConwayEra
      )
   => m C.TxIn
 registerStakeCredentialNoWitness = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
   txBody <- BuildTx.execBuildTxT $ do
-    let cert :: C.Certificate era = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ C.ConwayCertificate C.conwayBasedEra $ TxCert.RegTxCert $ C.toShelleyStakeCredential scriptStakingCredential
-    BuildTx.addCertificate cert
+    BuildTx.addConwayRegCertNoWitness @era scriptStakingCredential
   txi <- C.TxIn . C.getTxId . C.getTxBody <$> tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [] <*> pure (C.TxIx 0)
+
   balanceAndSubmit mempty Wallet.w1 txBody TrailingChange [] >>= \case
     Left e | List.isInfixOf "StakeKeyRegisteredDELEG" (show e) -> pure ()
     Left e -> fail $ "Expected StakeKeyRegisteredDELEG error, got" <> show e
@@ -476,6 +482,8 @@ withdrawZeroTrick
      , MonadFail m
      , C.IsConwayBasedEra era
      , C.HasScriptLanguageInEra C.PlutusScriptV2 era
+     , C.ShelleyLedgerEra era ~ Ex.LedgerEra era
+     , Ex.IsEra era
      )
   => m ()
 withdrawZeroTrick = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
@@ -514,19 +522,18 @@ queryStakeAddressesTest = do
   pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
   let
     stakeCert =
-      C.makeStakeAddressRegistrationCertificate
-        . C.StakeAddrRegistrationConway C.ConwayEraOnwardsConway (pp ^. Ledger.ppKeyDepositL)
-        $ stakeCred
+      Ex.makeStakeAddressRegistrationCertificate stakeCred (pp ^. Ledger.ppKeyDepositL)
 
     delegationCert =
-      C.makeStakeAddressDelegationCertificate $
-        C.StakeDelegationRequirementsConwayOnwards C.ConwayEraOnwardsConway stakeCred (Ledger.DelegStake $ C.unStakePoolKeyHash poolId)
+      Ex.makeStakeAddressDelegationCertificate
+        stakeCred
+        (Ledger.DelegStake $ C.unStakePoolKeyHash poolId)
 
     stakeCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate stakeCert
+      BuildTx.addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
 
     delegCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate delegationCert
+      BuildTx.addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
 
   -- activate stake
   void $ tryBalanceAndSubmit mempty Wallet.w2 stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
@@ -538,8 +545,8 @@ queryStakeAddressesTest = do
 
   (rewards, delegations) <- queryStakeAddresses (Set.fromList [stakeCred]) Defaults.networkId
 
-  when (length delegations /= 1) $ fail "Expected 1 delegation"
   when (length rewards /= 1) $ fail "Expected 1 reward"
+  when (length delegations /= 1) $ fail $ "Expected 1 delegation, found " <> show (length delegations)
 
 queryStakeVoteDelegateesTest :: forall m. (MonadIO m, MonadMockchain C.ConwayEra m, MonadError (BalanceTxError C.ConwayEra) m, MonadFail m) => m ()
 queryStakeVoteDelegateesTest = do
@@ -552,23 +559,18 @@ queryStakeVoteDelegateesTest = do
   pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
   let
     stakeCert =
-      C.makeStakeAddressRegistrationCertificate
-        . C.StakeAddrRegistrationConway C.ConwayEraOnwardsConway (pp ^. Ledger.ppKeyDepositL)
-        $ stakeCred
+      Ex.makeStakeAddressRegistrationCertificate stakeCred (pp ^. Ledger.ppKeyDepositL)
     drepCert =
-      C.makeDrepRegistrationCertificate
-        (C.DRepRegistrationRequirements C.ConwayEraOnwardsConway drepCred (pp ^. Ledger.ppDRepDepositL))
-        Nothing
+      Ex.makeDrepRegistrationCertificate drepCred (pp ^. Ledger.ppDRepDepositL) Nothing
     delegationCert =
-      C.makeStakeAddressDelegationCertificate $
-        C.StakeDelegationRequirementsConwayOnwards C.ConwayEraOnwardsConway stakeCred (Ledger.DelegVote $ Ledger.DRepKeyHash drepKeyHash)
+      Ex.makeStakeAddressDelegationCertificate stakeCred (Ledger.DelegVote $ Ledger.DRepKeyHash drepKeyHash)
 
     stakeCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate stakeCert
+      BuildTx.addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
     drepCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate drepCert
+      BuildTx.addCertificate drepCert Ex.AnyKeyWitnessPlaceholder
     delegCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate delegationCert
+      BuildTx.addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
 
   -- activate stake
   void $ tryBalanceAndSubmit mempty Wallet.w2 stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
@@ -602,7 +604,7 @@ stakeKeyWithdrawalTest = do
             BuildTx.mkConwayStakeCredentialRegistrationAndDelegationCertificate
               stakeCred
               (Ledger.DelegVote Ledger.DRepAlwaysAbstain)
-          BuildTx.addCertificate cert
+          BuildTx.addCertificate cert Ex.AnyKeyWitnessPlaceholder
 
   -- activate stake and delegate to drep with a single certificate
   void $ tryBalanceAndSubmit mempty Wallet.w2 delegDrepCertTx TrailingChange [C.WitnessStakeKey stakeKey]
@@ -627,6 +629,8 @@ addScriptWithdrawalTest
      , MonadFail m
      , C.IsConwayBasedEra era
      , C.HasScriptLanguageInEra C.PlutusScriptV2 era
+     , C.ShelleyLedgerEra era ~ Ex.LedgerEra era
+     , Ex.IsEra era
      )
   => m ()
 addScriptWithdrawalTest = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
@@ -636,7 +640,7 @@ addScriptWithdrawalTest = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ 
       withdrawalAmount = 100
       wit = BuildTx.buildScriptWitness Scripts.v2StakingScript C.NoScriptDatumForStake ()
 
-  setReward scriptStakingCredential $ C.quantityToLovelace withdrawalAmount
+  setReward @era scriptStakingCredential $ C.quantityToLovelace withdrawalAmount
 
   stakeTxBody <- execBuildTxT $ BuildTx.addScriptWithdrawal sh withdrawalAmount wit
   void $ tryBalanceAndSubmit mempty Wallet.w1 stakeTxBody TrailingChange []
@@ -649,6 +653,8 @@ addScriptWithdrawalWithCustomRedeemerTest
      , MonadFail m
      , C.IsConwayBasedEra era
      , C.HasScriptLanguageInEra C.PlutusScriptV2 era
+     , C.ShelleyLedgerEra era ~ Ex.LedgerEra era
+     , Ex.IsEra era
      )
   => m ()
 addScriptWithdrawalWithCustomRedeemerTest = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do

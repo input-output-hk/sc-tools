@@ -136,7 +136,7 @@ allowLargeTransactions =
   let change :: ShelleyGenesis -> ShelleyGenesis
       change g = g{sgProtocolParams = double (sgProtocolParams g)}
       double :: Core.PParams ShelleyEra -> Core.PParams ShelleyEra
-      double = over (Core.ppLens . Core.hkdMaxTxSizeL) (* 2)
+      double = over (Core.ppLensHKD . Core.hkdMaxTxSizeL) (* 2)
    in mempty{cfShelley = change}
 
 {- | Change the shelley genesis config in such as way that it enables reward

@@ -110,9 +110,6 @@ toCardanoApiAddress :: (C.IsCardanoEra era) => Bech32StringOf Address -> Maybe (
 toCardanoApiAddress (Bech32StringOf text) =
   C.deserialiseAddress (C.proxyToAsType Proxy) text
 
-instance (Typeable ctx) => L.FromCBOR (C.TxOut ctx CurrentEra) where
-  fromCBOR = C.fromShelleyTxOut C.ShelleyBasedEraConway <$> L.fromCBOR
-
 instance L.ToCBOR (C.TxOut C.CtxUTxO CurrentEra) where
   toCBOR = L.toCBOR . C.toShelleyTxOut C.ShelleyBasedEraConway
 
@@ -146,6 +143,9 @@ toPricesRational (MemoryCpuWith (MaestroRational memory) (MaestroRational cpu)) 
 
 toCardanoApiCoin :: AsAda -> L.Coin
 toCardanoApiCoin (AsAda (AsLovelace l)) = L.Coin (fromIntegral l)
+
+toCardanoApiCoinCompact :: AsAda -> L.CompactForm L.Coin
+toCardanoApiCoinCompact = L.toCompactPartial . toCardanoApiCoin
 
 toCardanoApiBoundedRational :: (HasCallStack, Typeable r, BaseTypes.BoundedRational r) => MaestroRational -> r
 toCardanoApiBoundedRational (MaestroRational r) = C.unsafeBoundedRational r
@@ -228,7 +228,7 @@ toCardanoApiProtocolParams
           & L.hkdMaxTxSizeL .~ fromIntegral (asBytesBytes protocolParametersMaxTransactionSize)
           & L.hkdMaxBHSizeL .~ fromIntegral (asBytesBytes protocolParametersMaxBlockHeaderSize)
           & L.hkdKeyDepositL .~ toCardanoApiCoin protocolParametersStakeCredentialDeposit
-          & L.hkdPoolDepositL .~ toCardanoApiCoin protocolParametersStakePoolDeposit
+          & L.hkdPoolDepositCompactL .~ toCardanoApiCoinCompact protocolParametersStakePoolDeposit
           & L.hkdEMaxL .~ L.EpochInterval (fromIntegral protocolParametersStakePoolRetirementEpochBound)
           & L.hkdNOptL .~ fromIntegral protocolParametersDesiredNumberOfStakePools
           & L.hkdA0L .~ toCardanoApiBoundedRational protocolParametersStakePoolPledgeInfluence
@@ -273,7 +273,7 @@ toCardanoApiProtocolParams
           & L.hkdCommitteeMaxTermLengthL .~ BaseTypes.EpochInterval (fromIntegral protocolParametersConstitutionalCommitteeMaxTermLength)
           & L.hkdGovActionLifetimeL .~ BaseTypes.EpochInterval (fromIntegral protocolParametersGovernanceActionLifetime)
           & L.hkdGovActionDepositL .~ toLovelace protocolParametersGovernanceActionDeposit
-          & L.hkdDRepDepositL .~ toLovelace protocolParametersDelegateRepresentativeDeposit
+          & L.hkdDRepDepositCompactL .~ toCardanoApiCoinCompact protocolParametersDelegateRepresentativeDeposit
           & L.hkdDRepActivityL .~ BaseTypes.EpochInterval (fromIntegral protocolParametersDelegateRepresentativeMaxIdleTime)
           & L.hkdMinFeeRefScriptCostPerByteL .~ C.unsafeBoundedRational @BaseTypes.NonNegativeInterval (Maestro.minFeeReferenceScriptsBase protocolParametersMinFeeReferenceScripts)
       )

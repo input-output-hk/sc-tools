@@ -31,14 +31,13 @@ import Cardano.Api (
   NetworkId,
   OperationalCertificateIssueCounter (..),
   StakeAddressReference (..),
-  StakeAddressRequirements (..),
   StakeCredential (..),
-  StakeDelegationRequirements (..),
   StakePoolParameters (..),
-  StakePoolRegistrationRequirements (..),
   toShelleyPoolParams,
  )
 import Cardano.Api qualified as C
+import Cardano.Api.Experimental.Certificate qualified as Ex
+import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Conway.TxCert qualified as L
 import Cardano.Slotting.Slot (withOriginToMaybe)
@@ -130,6 +129,7 @@ data CardanoNodeArgs = CardanoNodeArgs
   , nodeShelleyGenesisFile :: FilePath
   , nodeAlonzoGenesisFile :: FilePath
   , nodeConwayGenesisFile :: FilePath
+  , nodeDijkstraGenesisFile :: FilePath
   , nodeTopologyFile :: FilePath
   , nodeDatabaseDir :: FilePath
   , nodeDlgCertFile :: Maybe FilePath
@@ -149,6 +149,7 @@ defaultCardanoNodeArgs =
     , nodeShelleyGenesisFile = "genesis-shelley.json"
     , nodeAlonzoGenesisFile = "genesis-alonzo.json"
     , nodeConwayGenesisFile = "genesis-conway.json"
+    , nodeDijkstraGenesisFile = "genesis-dijkstra.json"
     , nodeTopologyFile = "topology.json"
     , nodeDatabaseDir = "db"
     , nodeDlgCertFile = Nothing
@@ -413,6 +414,10 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
       >>= copyAndChangeJSONFile
         cfConway
         (stateDirectory </> nodeConwayGenesisFile args)
+    readConfigFile ("devnet" </> "genesis-dijkstra.json")
+      >>= copyAndChangeJSONFile
+        cfConway
+        (stateDirectory </> nodeDijkstraGenesisFile args)
 
 writeTopology :: [Port] -> FilePath -> CardanoNodeArgs -> IO ()
 writeTopology peers stateDirectory args =
@@ -476,13 +481,22 @@ refreshSystemStart stateDirectory args = do
 
 -- | Generate a topology file from a list of peers.
 mkTopology :: [Port] -> Aeson.Value
-mkTopology peers =
-  Aeson.object ["Producers" .= map encodePeer peers]
+mkTopology localRoots =
+  Aeson.object ["localRoots" .= map encodeLocalRoot localRoots, "publicRoots" .= ([] :: [Int])]
  where
-  encodePeer :: Int -> Aeson.Value
-  encodePeer port =
+  encodeLocalRoot :: Int -> Aeson.Value
+  encodeLocalRoot port =
     Aeson.object
-      ["addr" .= ("127.0.0.1" :: Text), "port" .= port, "valency" .= (1 :: Int)]
+      [ "accessPoints"
+          .= [ Aeson.object
+                 [ "address" .= ("127.0.0.1" :: Text)
+                 , "port" .= port
+                 ]
+             ]
+      , "advertise" .= False
+      , "trustable" .= True
+      , "valency" .= (1 :: Int)
+      ]
 
 {- | Initialize the system start time to now (modulo a small offset needed to
 give time to the system to bootstrap correctly).
@@ -551,9 +565,7 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
     stakeCred = StakeCredentialByKey stakeHash
 
     stakeCert =
-      C.makeStakeAddressRegistrationCertificate
-        . StakeAddrRegistrationConway C.ConwayEraOnwardsConway (pp ^. Ledger.ppKeyDepositL)
-        $ stakeCred
+      Ex.makeStakeAddressRegistrationCertificate stakeCred (pp ^. Ledger.ppKeyDepositL)
     stakeAddress = C.makeStakeAddress rnNetworkId stakeCred
 
     paymentAddress =
@@ -567,8 +579,9 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
     poolId = C.verificationKeyHash stakePoolVerKey
 
     delegationCert =
-      C.makeStakeAddressDelegationCertificate $
-        StakeDelegationRequirementsConwayOnwards C.ConwayEraOnwardsConway stakeCred (L.DelegStake $ C.unStakePoolKeyHash poolId)
+      Ex.makeStakeAddressDelegationCertificate
+        stakeCred
+        (L.DelegStake $ C.unStakePoolKeyHash poolId)
 
     stakePoolParams =
       StakePoolParameters
@@ -583,10 +596,8 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
         Nothing
 
     poolCert =
-      C.makeStakePoolRegistrationCertificate
-        . StakePoolRegistrationRequirementsConwayOnwards C.ConwayEraOnwardsConway
-        . toShelleyPoolParams
-        $ stakePoolParams
+      Ex.makeStakePoolRegistrationCertificate
+        (toShelleyPoolParams stakePoolParams)
 
   -- create the node certificate
   let
@@ -607,16 +618,16 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
 
   let
     stakeCertTx = execBuildTx $ do
-      addCertificate stakeCert
+      addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
 
     poolCertTx = execBuildTx $ do
       let pledge = spnPledge params
       when (pledge > 0) $
         payToAddress paymentAddress (C.lovelaceToValue pledge)
-      addCertificate poolCert
+      addCertificate poolCert Ex.AnyKeyWitnessPlaceholder
 
     delegCertTx = execBuildTx $ do
-      addCertificate delegationCert
+      addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
 
   txSubmissionResults <-
     runExceptT $ do
