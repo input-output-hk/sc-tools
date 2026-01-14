@@ -39,38 +39,19 @@ library
   import:          lang
   exposed-modules:
     Convex.Wallet
-    Convex.Wallet.API
-    Convex.Wallet.Cli
-    Convex.Wallet.Cli.Command
-    Convex.Wallet.Cli.Config
     Convex.Wallet.MockWallet
-    Convex.Wallet.NodeClient
-    Convex.Wallet.NodeClient.BalanceClient
     Convex.Wallet.Operator
-    Convex.Wallet.WalletState
 
   hs-source-dirs:  lib
   build-depends:
     , aeson
-    , aeson-pretty
     , base                  >=4.14.0
-    , bytestring
     , containers
     , convex-base
-    , convex-node-client
     , convex-optics
-    , katip
     , lens
-    , mtl
     , optparse-applicative
-    , servant
-    , servant-client
-    , servant-client-core
-    , servant-server
-    , stm
     , text
-    , transformers
-    , warp
 
   -- cardano dependencies
   build-depends:
@@ -78,14 +59,3 @@ library
     , cardano-ledger-core
     , cardano-ledger-shelley
     , plutus-ledger-api
-
-executable convex-wallet
-  import:           lang
-  main-is:          Main.hs
-  build-depends:
-    , base           >=4.14.3.0
-    , convex-wallet
-
-  hs-source-dirs:   app
-  default-language: Haskell2010
-  ghc-options:      -threaded -rtsopts -O2

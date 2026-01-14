@@ -57,7 +57,6 @@ library
     Convex.Devnet.Logging
     Convex.Devnet.Utils
     Convex.Devnet.Wallet
-    Convex.Devnet.WalletServer
 
   hs-source-dirs:  lib
   build-depends:

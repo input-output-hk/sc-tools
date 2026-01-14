@@ -45,12 +45,6 @@ jobs:
           path: ~/.cabal/store
           key: cabal-${{ hashFiles('cabal.project') }}
 
-      - name: Build convex-wallet (cardano-node/cli from Nix)
-        run: |
-          system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
-          nix build ".#packages.${system}.convex-wallet:exe:convex-wallet"
-          echo "${GITHUB_WORKSPACE}/result/bin" >> "$GITHUB_PATH"
-
       - name: Prepare dependencies and build environment
         run: |
           nix develop .#ghc966-nohoogle -c bash -lc 'ghc --version'
