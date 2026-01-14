@@ -78,20 +78,17 @@ library
   build-depends:
     , aeson
     , async
-    , base                 >=4.14.0
+    , base           >=4.14.0
     , bytestring
     , contra-tracer
     , directory
     , filepath
-    , http-client
     , HUnit
     , io-classes
     , lens
     , mtl
     , prettyprinter
     , process
-    , servant-client
-    , servant-client-core
     , stm
     , temporary
     , text
