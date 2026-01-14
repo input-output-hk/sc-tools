@@ -481,13 +481,22 @@ refreshSystemStart stateDirectory args = do
 
 -- | Generate a topology file from a list of peers.
 mkTopology :: [Port] -> Aeson.Value
-mkTopology peers =
-  Aeson.object ["Producers" .= map encodePeer peers, "localRoots" .= ([] :: [Int]), "publicRoots" .= ([] :: [Int])]
+mkTopology localRoots =
+  Aeson.object ["localRoots" .= map encodeLocalRoot localRoots, "publicRoots" .= ([] :: [Int])]
  where
-  encodePeer :: Int -> Aeson.Value
-  encodePeer port =
+  encodeLocalRoot :: Int -> Aeson.Value
+  encodeLocalRoot port =
     Aeson.object
-      ["addr" .= ("127.0.0.1" :: Text), "port" .= port, "valency" .= (1 :: Int)]
+      [ "accessPoints"
+          .= [ Aeson.object
+                 [ "address" .= ("127.0.0.1" :: Text)
+                 , "port" .= port
+                 ]
+             ]
+      , "advertise" .= False
+      , "trustable" .= True
+      , "valency" .= (1 :: Int)
+      ]
 
 {- | Initialize the system start time to now (modulo a small offset needed to
 give time to the system to bootstrap correctly).
