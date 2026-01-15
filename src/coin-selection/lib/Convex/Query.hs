@@ -24,10 +24,6 @@ module Convex.Query (
   selectOperatorUTxO,
   BalanceAndSubmitError (..),
   AsBalanceAndSubmitError (..),
-
-  -- * Wallet API queries
-  WalletAPIQueryT (..),
-  runWalletAPIQueryT,
 ) where
 
 import Cardano.Api (
@@ -37,8 +33,6 @@ import Cardano.Api (
 import Cardano.Api qualified as C
 import Control.Lens.TH (makeClassyPrisms)
 import Control.Monad.Except (MonadError)
-import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.Trans.Class (MonadTrans (..))
 import Control.Monad.Trans.Except (runExceptT)
 import Control.Tracer (Tracer, natTracer)
@@ -55,16 +49,12 @@ import Convex.CoinSelection (
   TxBalancingMessage,
  )
 import Convex.CoinSelection qualified
-import Convex.MonadLog (MonadLog)
 import Convex.Utils (inBabbage, liftEither, mapError)
 import Convex.Utxos (
   BalanceChanges,
   UtxoSet (_utxos),
-  fromUtxoTx,
-  onlyCredentials,
  )
 import Convex.Utxos qualified as Utxos
-import Convex.Wallet.API qualified as Wallet.API
 import Convex.Wallet.Operator (
   Operator (..),
   Signing,
@@ -77,7 +67,6 @@ import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import GHC.Generics (Generic)
-import Servant.Client (ClientEnv)
 
 {- | Balance the transaction body using the UTxOs locked by the payment credentials,
 returning any unused funds to the given return output
@@ -94,25 +83,6 @@ balanceTx
 balanceTx dbg inputCredentials changeOutput txBody changePosition = do
   o <- utxosByPaymentCredentials (Set.fromList inputCredentials)
   runExceptT (Convex.CoinSelection.balanceTx (natTracer lift dbg) changeOutput o txBody changePosition)
-
-newtype WalletAPIQueryT era m a = WalletAPIQueryT {runWalletAPIQueryT_ :: ReaderT ClientEnv m a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadBlockchain era, MonadLog, MonadTrans)
-
-runWalletAPIQueryT :: ClientEnv -> WalletAPIQueryT era m a -> m a
-runWalletAPIQueryT env (WalletAPIQueryT action) = runReaderT action env
-
-instance (MonadIO m) => MonadUtxoQuery (WalletAPIQueryT era m) where
-  utxosByPaymentCredentials credentials = WalletAPIQueryT $ do
-    result <- ask >>= liftIO . Wallet.API.getUTxOs
-    case result of
-      Left err -> do
-        -- TODO: Better error handling
-        let msg = "WalletAPI: Error when calling remote server: " <> show err
-        liftIO (putStrLn msg)
-        error msg
-      Right x -> pure (onlyCredentials credentials $ fromUtxoTx $ fmap (const Nothing) x)
-
-deriving newtype instance (MonadError e m) => MonadError e (WalletAPIQueryT era m)
 
 -- | Balance a transaction body using the funds locked by one of a list of payment credentials
 balancePaymentCredentials

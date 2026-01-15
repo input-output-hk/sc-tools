@@ -60,7 +60,6 @@ library
     , lens
     , ordered-containers
     , primitive
-    , servant-client
     , text
 
   -- cardano dependencies

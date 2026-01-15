@@ -51,11 +51,6 @@ import Convex.Devnet.Utils (
  )
 import Convex.Devnet.Wallet (WalletLog)
 import Convex.Devnet.Wallet qualified as W
-import Convex.Devnet.WalletServer (
-  getUTxOs,
-  withWallet,
- )
-import Convex.Devnet.WalletServer qualified as WS
 import Convex.NodeClient.Fold (
   LedgerStateArgs (NoLedgerStateArgs),
   foldClient,
@@ -114,7 +109,6 @@ main = do
       , testCase "start local stake pool node" startLocalStakePoolNode
       , testCase "stake pool registration" registeredStakePoolNode
       , testCase "stake pool rewards" stakePoolRewards
-      , testCase "run the wallet server" runWalletServer
       , testCase "change max tx size" changeMaxTxSize
       ]
 
@@ -305,17 +299,6 @@ makePayment = do
           bal <- Utxos.totalBalance <$> W.walletUtxos runningNode wllt
           assertEqual "Wallet should have the expected balance" (fromIntegral numUtxos * lovelacePerUtxo) (C.lovelaceToQuantity $ C.selectLovelace bal)
 
-runWalletServer :: IO ()
-runWalletServer =
-  showLogsOnFailure $ \tr -> do
-    withTempDir "cardano-cluster" $ \tmp -> do
-      withCardanoNodeDevnet (contramap TLNode tr) tmp $ \node ->
-        withWallet (contramap TWallet tr) tmp node $ \wllt -> do
-          bal <- Utxos.totalBalance <$> getUTxOs wllt
-          let lovelacePerUtxo = 100_000_000
-              numUtxos = 10 :: Int
-          assertEqual "Wallet should have the correct balance" (fromIntegral numUtxos * lovelacePerUtxo) (C.selectLovelace bal)
-
 changeMaxTxSize :: IO ()
 changeMaxTxSize =
   let getMaxTxSize = fmap (view L.ppMaxTxSizeL) . queryProtocolParameters . rnConnectInfo
@@ -328,7 +311,6 @@ changeMaxTxSize =
 data TestLog
   = TLWallet WalletLog
   | TLNode NodeLog
-  | TWallet WS.WalletLog
   | SubmitTx {txId :: C.TxId}
   | FoundTx {txId :: C.TxId}
   | TLRewards C.Quantity
