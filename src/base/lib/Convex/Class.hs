@@ -156,6 +156,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
+import Data.Type.Equality (TestEquality (..), (:~:) (..))
 import Katip.Monadic (KatipContextT (..))
 import Ouroboros.Consensus.HardFork.History (
   interpretQuery,
@@ -203,7 +204,7 @@ fun = do
   ...
   throwError $ L.review _ExUnitsError $ Phase1Error bla
   ...
-  throwError $ L.review _PredicateFailures $ []
+  throwError $ L.review _CollectErrors $ []
   ...
   throwError $ L.review _OtherError
 @
@@ -216,31 +217,32 @@ makeClassyPrisms ''ExUnitsError
 
 -- see https://github.com/j-mueller/sc-tools/issues/214
 data SendTxError era
-  = CardanoNodeError !C.TxValidationErrorInCardanoMode
+  = ApplyTxFailure !(ApplyTxError (C.ShelleyLedgerEra era))
   | MockchainError !(ValidationError era)
   | OtherProviderError !Text.Text
+  | EraMismatchError
   deriving anyclass (Exception)
 
 data ValidationError era
   = VExUnits !(ExUnitsError era)
-  | PredicateFailures ![CollectError (C.ShelleyLedgerEra era)]
-  | ApplyTxFailure !(ApplyTxError (C.ShelleyLedgerEra era))
+  | CollectErrors ![CollectError (C.ShelleyLedgerEra era)]
   deriving anyclass (Exception)
 
 instance (C.IsAlonzoBasedEra era) => Show (SendTxError era) where
   show err =
-    "SendTxError: " <> case err of
-      CardanoNodeError err' -> "CardanoNodeError: " <> show err'
-      MockchainError err' -> show err'
-      OtherProviderError err' -> "OtherProviderError: " <> Text.unpack err'
+    C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $
+      "SendTxError: " <> case err of
+        ApplyTxFailure err' -> "ApplyTxFailure: " <> show err'
+        MockchainError err' -> show err'
+        OtherProviderError err' -> "OtherProviderError: " <> Text.unpack err'
+        EraMismatchError -> "EraMismatchError"
 
 instance (C.IsAlonzoBasedEra era) => Show (ValidationError era) where
   show err =
     C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $
       "ValidationError: " <> case err of
         VExUnits err' -> "VExUnits: " <> show err'
-        PredicateFailures errs' -> "PredicateFailures: " <> show errs'
-        ApplyTxFailure err' -> "ApplyTxFailure: " <> show err'
+        CollectErrors errs' -> "CollectErrors: " <> show errs'
 
 makeClassyPrisms ''SendTxError
 makeClassyPrisms ''ValidationError
@@ -355,7 +357,7 @@ data MockChainState era
   , mcsPoolState :: MempoolState (C.ShelleyLedgerEra era)
   , mcsTransactions :: [(Validated (Core.Tx (C.ShelleyLedgerEra era)), [PlutusWithContext])]
   -- ^ Transactions that were submitted to the mockchain and validated
-  , mcsFailedTransactions :: [(C.Tx era, ValidationError era)]
+  , mcsFailedTransactions :: [(C.Tx era, SendTxError era)]
   -- ^ Transactions that were submitted to the mockchain, but failed with a validation error
   , mcsDatums :: Map (C.Hash C.ScriptData) C.HashableScriptData
   , mcsTxById :: Map C.TxId (C.Tx era)
@@ -572,8 +574,10 @@ instance (MonadIO m, C.IsShelleyBasedEra era) => MonadBlockchain era (MonadBlock
     pure $ case result of
       SubmitSuccess ->
         Right txId
-      SubmitFail reason ->
-        Left $ CardanoNodeError reason
+      SubmitFail (C.TxValidationErrorInCardanoMode (C.ShelleyTxValidationError (testEquality (C.shelleyBasedEra @era) -> Just Refl) reason)) ->
+        Left $ ApplyTxFailure reason
+      SubmitFail _ ->
+        Left EraMismatchError
 
   utxoByTxIn txIns =
     runQuery' (C.QueryInEra (C.QueryInShelleyBasedEra C.shelleyBasedEra (C.QueryUTxO (C.QueryUTxOByTxIn txIns))))

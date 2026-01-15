@@ -57,7 +57,6 @@ import Convex.CoinSelection (
  )
 import Convex.MockChain (
   SendTxError (..),
-  ValidationError (..),
   evalMockchain0IO,
   failedTransactions,
   fromLedgerUTxO,

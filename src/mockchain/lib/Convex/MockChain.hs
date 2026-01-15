@@ -35,8 +35,7 @@ module Convex.MockChain (
   _MockchainError,
   ValidationError (..),
   _VExUnits,
-  _PredicateFailures,
-  _ApplyTxFailure,
+  _CollectErrors,
   getTxExUnits,
   evaluateTx,
   applyTransaction,
@@ -186,11 +185,10 @@ import Convex.Class (
   poolState,
   transactions,
   txById,
-  _ApplyTxFailure,
+  _CollectErrors,
   _MockchainError,
   _Phase1Error,
   _Phase2Error,
-  _PredicateFailures,
   _VExUnits,
  )
 import Convex.MockChain.Defaults ()
@@ -368,25 +366,25 @@ getTxExUnits NodeParams{npSystemStart, npEraHistory, npProtocolParameters} utxo 
       -- Left e -> Left (Phase1Error e)
       rdmrs -> traverse (either (Left . Phase2Error) (Right . snd)) rdmrs
 
-applyTransaction :: forall era. (EraStake (C.ShelleyLedgerEra era), C.IsEra era, C.IsAlonzoBasedEra era) => NodeParams era -> MockChainState era -> C.Tx era -> Either (ValidationError era) (MockChainState era, Validated (Core.Tx (C.ShelleyLedgerEra era)))
+applyTransaction :: forall era. (EraStake (C.ShelleyLedgerEra era), C.IsEra era, C.IsAlonzoBasedEra era) => NodeParams era -> MockChainState era -> C.Tx era -> Either (SendTxError era) (MockChainState era, Validated (Core.Tx (C.ShelleyLedgerEra era)))
 applyTransaction params state' tx'@(C.ShelleyTx _era tx) = C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $ do
   let currentSlot = state' ^. env . L.slot
       utxoState_ = state' ^. poolState . L.utxoState
       utxo = utxoState_ ^. L._UTxOState . _1
-  (vtx, scripts) <- first PredicateFailures (constructValidated (Defaults.globals params) (utxoEnv params currentSlot) utxoState_ tx)
+  (vtx, scripts) <- first (MockchainError . CollectErrors) (constructValidated (Defaults.globals params) (utxoEnv params currentSlot) utxoState_ tx)
   result <- applyTx params state' vtx scripts
 
   -- Not sure if this step is needed.
   when (C.obtainCommonConstraints (C.useEra @era) (tx ^. L.isValidTxL @(C.LedgerEra era)) == L.IsValid True) $
     void $
-      first VExUnits (getTxExUnits params utxo tx')
+      first (MockchainError . VExUnits) (getTxExUnits params utxo tx')
 
   pure result
 
 -- | Evaluate a transaction, returning all of its script contexts.
-evaluateTx :: NodeParams C.ConwayEra -> SlotNo -> UTxO L.ConwayEra -> C.Tx C.ConwayEra -> Either (ValidationError C.ConwayEra) [PlutusWithContext]
+evaluateTx :: NodeParams C.ConwayEra -> SlotNo -> UTxO L.ConwayEra -> C.Tx C.ConwayEra -> Either (SendTxError C.ConwayEra) [PlutusWithContext]
 evaluateTx params slotNo utxo (C.ShelleyTx _ tx) = do
-  (vtx, scripts) <- first PredicateFailures (constructValidated (Defaults.globals params) (utxoEnv params slotNo) (lsUTxOState (mcsPoolState state')) tx)
+  (vtx, scripts) <- first (MockchainError . CollectErrors) (constructValidated (Defaults.globals params) (utxoEnv params slotNo) (lsUTxOState (mcsPoolState state')) tx)
   _ <- applyTx params state' vtx scripts
   pure scripts
  where
@@ -438,7 +436,7 @@ applyTx
   -> MockChainState era
   -> Core.Tx (C.ShelleyLedgerEra era)
   -> [PlutusWithContext]
-  -> Either (ValidationError era) (MockChainState era, Validated (Core.Tx (C.ShelleyLedgerEra era)))
+  -> Either (SendTxError era) (MockChainState era, Validated (Core.Tx (C.ShelleyLedgerEra era)))
 applyTx params oldState@MockChainState{mcsEnv, mcsPoolState} tx context = C.shelleyBasedEraConstraints @era C.shelleyBasedEra $ do
   (newMempool, vtx) <- first ApplyTxFailure (Cardano.Ledger.Shelley.API.applyTx (Defaults.globals params) mcsEnv mcsPoolState tx)
   return (oldState & poolState .~ newMempool & over transactions ((vtx, context) :), vtx)
@@ -465,7 +463,7 @@ instance (Monad m, C.IsConwayBasedEra era, C.IsEra era, EraStake (C.ShelleyLedge
     case applyTransaction nps st tx of
       Left err -> do
         failedTransactions %= ((tx, err) :)
-        return $ Left $ MockchainError err
+        return $ Left err
       Right (st', _) -> do
         let C.Tx body _ = tx
             i = C.getTxId body
