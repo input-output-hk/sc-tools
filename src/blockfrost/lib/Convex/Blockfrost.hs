@@ -52,15 +52,18 @@ import Convex.Blockfrost.Types qualified as Types
 import Convex.Class (
   MonadBlockchain (..),
   MonadUtxoQuery (..),
-  SendTxError (OtherProviderError),
+  SendTxError (..),
  )
 import Convex.ResolvedTx (ResolvedTx (..))
 import Convex.Utils (requiredTxIns)
+import Convex.Utils.SubmissionFailure (extractLedgerErrors, parseTxSubmitError)
 import Convex.Utxos qualified as Utxos
 import Data.Bifunctor (Bifunctor (..))
+import Data.ByteString.Lazy (fromStrict)
 import Data.Coerce (coerce)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Data.Text.Encoding (encodeUtf8)
 import Streaming.Prelude (Of, Stream)
 import Streaming.Prelude qualified as S
 
@@ -116,11 +119,7 @@ instance (MonadIO m) => MonadUtxoQuery (BlockfrostT m) where
         fmap (second (,Nothing)) results'
 
 instance (MonadIO m) => MonadBlockchain C.ConwayEra (BlockfrostT m) where
-  sendTx tx =
-    (Right <$> MonadBlockchain.sendTxBlockfrost tx)
-      `catchError` ( \(err :: BlockfrostError) ->
-                       pure . Left . OtherProviderError . Text.pack $ show err
-                   )
+  sendTx tx = (Right <$> MonadBlockchain.sendTxBlockfrost tx) `catchError` convertError
   utxoByTxIn = MonadBlockchain.getUtxoByTxIn
   queryProtocolParameters = MonadBlockchain.getProtocolParams
   queryStakeAddresses stakeCreds _ = MonadBlockchain.getStakeAddresses stakeCreds
@@ -196,3 +195,11 @@ streamUTxOsWithAssetId (Types.assetIdToBlockfrostAssetId -> assetId) = do
     -- For each such address, stream only UTxOs that contain *this* asset at that address
     S.mapM lookupUtxo $
       Types.pagedStream (\p -> Client.getAddressUtxosAsset' addr assetId p Client.Ascending)
+
+convertError :: (Monad m) => BlockfrostError -> BlockfrostT m (Either (SendTxError C.ConwayEra) a)
+convertError (Types.BlockfrostBadRequest err) = case parseTxSubmitError $ fromStrict $ encodeUtf8 err of
+  Left parseErr -> pure $ Left $ OtherProviderError (Text.pack parseErr)
+  Right txSubmitError -> case extractLedgerErrors C.ShelleyBasedEraConway txSubmitError of
+    Just applyTxError -> pure $ Left applyTxError
+    Nothing -> pure $ Left $ OtherProviderError $ Text.pack (show err)
+convertError err = pure $ Left $ OtherProviderError $ Text.pack (show err)

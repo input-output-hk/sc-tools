@@ -68,6 +68,7 @@ library
     Convex.Utils
     Convex.Utils.BuiltinData
     Convex.Utils.String
+    Convex.Utils.SubmissionFailure
     Convex.UtxoMod
     Convex.Utxos
 
@@ -96,9 +97,12 @@ library
     , cardano-binary
     , cardano-crypto-class
     , cardano-crypto-wrapper
+    , cardano-data
+    , cardano-ledger-allegra
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-babbage
+    , cardano-ledger-binary
     , cardano-ledger-byron
     , cardano-ledger-conway
     , cardano-ledger-core
