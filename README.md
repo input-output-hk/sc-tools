@@ -18,7 +18,7 @@ The `main` branch uses the following versions of its major dependencies:
 
 |Name|Version|
 |--|--|
-|`cardano-node`|[10.1.4](https://github.com/IntersectMBO/cardano-node/releases/tag/10.1.4)|
+|`cardano-node`|[10.6.1](https://github.com/IntersectMBO/cardano-node/releases/tag/10.6.1)|
 |`cardano-api`|[10.21.0.0](https://chap.intersectmbo.org/package/cardano-api-10.21.0.0/)|
 |`ghc`|9.6.6|
 |`cabal`|3.10.3.0|
@@ -79,18 +79,19 @@ Clearly, to use `sc-tools` in practice we need to be able to talk to the Cardano
 {-| Send transactions and resolve tx inputs.
 -}
 class Monad m => MonadBlockchain m where
-  sendTx :: Tx BabbageEra -> m TxId -- ^ Submit a transaction to the network
-  utxoByTxIn :: Set C.TxIn -> m (C.UTxO C.BabbageEra) -- ^ Resolve tx inputs
+  sendTx :: Tx ConwayEra -> m TxId -- ^ Submit a transaction to the network
+  utxoByTxIn :: Set C.TxIn -> m (C.UTxO C.ConwayEra) -- ^ Resolve tx inputs
 ```
 
 Both operations can be performed efficiently by a Cardano node using `cardano-api`.
+There `MonadUtxoQuery` class has support for queries that can only be answered efficiently by 
 
 ## Testing
 
 `sc-tools` includes a simple emulator that can be used to build and evaluate transactions. A simple unit test looks like this
 
 ```haskell
-import qualified Cardano.Api.Shelley            as C
+import qualified Cardano.Api                    as C
 import qualified Convex.MockChain.CoinSelection as CoinSelection
 import qualified Convex.MockChain.Defaults      as Defaults
 import qualified Convex.Wallet                  as Wallet
@@ -143,22 +144,6 @@ The code in `sc-tools` has been written with the following goals in mind.
 * Stick to `cardano-api` where possible, avoid defining additional types that duplicate those from `cardano-api` and `cardano-ledger`
 * Provide an easy-to-use coin selection and balancing algorithm. It should be able to deal with Plutus scripts and native assets.
 * Support off-chain code that fits in with the "fold of blocks"-style node client API from `cardano-api`.
-
-## Credits & Attributions
-
-`sc-tools` is based on my personal experience working with various apps and libraries in the Cardano Haskell space. There is nothing in this repository that is completely new:
-
-* Much of the emulator code has been copied from `plutus-apps`
-* The transaction balancing code is mostly copied from `cardano-api`, with some modifications that were suggested by Jean-Frederic Etienne and his work on the Djed stablecoin implementation
-* The idea of having an extremely simple `MonadBlockchain` class, and an extremely simple emulator, comes from Tweag's `plutus-libs`. A big difference is that balancing is included as an effect in `cooked-validators`' `MonadBlockChain` class, whereas in `sc-tools` it is just a set of functions. This was done to decouple the wallet implementation from the blockchain code.
-* The idea of having a little language for building transactions first appeared in `plutus-apps` where it was called "constraints". This was then refined by `cooked-validators`. In `sc-tools` we do away with the special types for constraints, and work on the `TxBody` type from `cardano-api` directly.
-* Turning unfinished transactions into fully valid transactions was first implemented in `cardano-wallet`
-
-What *is* new about this code is that it combines the above ideas in a codebase that adds as few abstractions as possible on top of `cardano-api`. So you don't need any dependencies other than `sc-tools` and `cardano-api` to write all of the off-chain code of your app.
-
-## Robustness
-
-There aren't a lot of tests right now, but I have used this code for real DeFi transactions on mainnet (trust me!)
 
 ## Contributing
 
