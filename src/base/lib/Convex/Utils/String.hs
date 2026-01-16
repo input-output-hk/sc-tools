@@ -5,6 +5,7 @@ module Convex.Utils.String (
   unsafeAssetName,
   unsafeDatumHash,
   unsafeScriptHash,
+  unsafeHexHash,
   unsafeDeserialiseRawBytesHex,
 ) where
 
@@ -28,7 +29,11 @@ unsafeAssetName = either error id . Parser.runParser C.parseAssetName
 
 -- | Parse a `C.Hash C.ScriptData`, calling 'error' on failure
 unsafeDatumHash :: Text.Text -> C.Hash C.ScriptData
-unsafeDatumHash = either (error . (<>) "Failed to parse datum hash: ") id . Parser.runParser C.parseScriptDataHash
+unsafeDatumHash = unsafeHexHash
+
+-- | Parse a `C.Hash w` from hex text, calling 'error' on failure
+unsafeHexHash :: (C.SerialiseAsRawBytes (C.Hash w)) => Text.Text -> C.Hash w
+unsafeHexHash = either (error . (<>) "Failed to parse hex hash: ") id . Parser.runParser C.parseHexHash
 
 -- | Parse a `C.ScriptHash`, calling 'error' on failure
 unsafeScriptHash :: Text.Text -> C.ScriptHash
