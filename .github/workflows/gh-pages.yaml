@@ -9,6 +9,8 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
+    env:
+      NIX_CONFIG: accept-flake-config = true
     steps:
       # install deps.
       - name: install dependencies
@@ -19,25 +21,28 @@ jobs:
       - name: Install system dependencies
         uses: input-output-hk/actions/base@latest
 
-
-      - uses: haskell-actions/setup@v2
-        id: cabal-setup
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          ghc-version: '9.6.6'
-          cabal-version: '3.10.3.0'
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            accept-flake-config = true
 
       - uses: actions/checkout@v4
 
       - name: Cache .cabal
         uses: actions/cache@v3
         with:
-          path: ${{ steps.cabal-setup.outputs.cabal-store }}
+          path: ~/.cabal/store
           key: cabal-haddocks-${{ hashFiles('cabal.project') }}
+
+      - name: Prepare dependencies and build environment
+        run: |
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal update'
 
       - name: Build haddocks
         run: |
-          cabal update
-          cabal haddock-project --local --output=haddocks
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal haddock-project --local --output=haddocks'
 
       - name: Upload GH pages artifact
         uses: actions/upload-pages-artifact@v3.0.1
