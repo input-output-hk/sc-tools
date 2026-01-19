@@ -66,6 +66,7 @@ library
     Convex.PlutusTx
     Convex.ResolvedTx
     Convex.Utils
+    Convex.Utils.BuiltinData
     Convex.Utils.String
     Convex.UtxoMod
     Convex.Utxos
