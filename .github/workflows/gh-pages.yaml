@@ -2,7 +2,6 @@ name: Build haddocks and publish to github pages
 on:
   push:
     branches: [ "main" ]
-    tags: [ "*.*.*" ]
   pull_request:
 
 jobs:
@@ -46,6 +45,7 @@ jobs:
 
       - name: Upload GH pages artifact
         uses: actions/upload-pages-artifact@v3.0.1
+        id: deployment
         with:
           path: haddocks
 
@@ -64,12 +64,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
-    # Deploy only from the main branch
-    if: ${{ github.ref == 'main' }}
+    # Deploy only from the main branch on push events
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/speedup-workflow' }}
 
     # Specify runner + deployment step
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2 # or the latest "vX.X.X" version tag for this action
+        uses: actions/deploy-pages@v4
