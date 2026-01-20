@@ -41,7 +41,7 @@ jobs:
 
       - name: Build haddocks
         run: |
-          nix develop .#ghc966-nohoogle -c bash -lc 'cabal haddock-project --local --output=haddocks'
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal haddock-project --output=haddocks'
 
       - name: Upload GH pages artifact
         uses: actions/upload-pages-artifact@v3.0.1
