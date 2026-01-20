@@ -65,7 +65,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     # Deploy only from the main branch on push events
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/speedup-workflow' }}
+    if: ${{ github.ref == 'refs/heads/speedup-workflow' }}
 
     # Specify runner + deployment step
     runs-on: ubuntu-latest
