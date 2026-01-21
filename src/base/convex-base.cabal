@@ -131,6 +131,7 @@ test-suite convex-base-test
   other-modules:
     Convex.Aiken.Test
     Convex.PlutusLedgerSpec
+    Convex.SubmissionFailureSpec
 
   -- Local dependencies
   build-depends:      convex-base
@@ -139,6 +140,17 @@ test-suite convex-base-test
   build-depends:
     , cardano-api
     , cardano-api-gen
+    , cardano-crypto-class
+    , cardano-ledger-allegra
+    , cardano-ledger-alonzo
+    , cardano-ledger-babbage
+    , cardano-ledger-byron
+    , cardano-ledger-conway
+    , cardano-ledger-conway:testlib
+    , cardano-ledger-core
+    , cardano-ledger-mary
+    , cardano-ledger-shelley
+    , cardano-slotting
 
   -- Hackage dependencies
   build-depends:
