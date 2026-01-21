@@ -42,7 +42,7 @@ import Cardano.Ledger.Alonzo.TxOut (AlonzoTxOut (..))
 import Cardano.Ledger.Babbage.Rules qualified as BabbageRules (BabbageUtxoPredFailure (..), BabbageUtxowPredFailure (..))
 import Cardano.Ledger.Babbage.TxInfo (BabbageContextError (..))
 import Cardano.Ledger.Babbage.TxOut (BabbageTxOut (..))
-import Cardano.Ledger.BaseTypes (Mismatch (..), Network (..), ProtVer (..), TxIx (..))
+import Cardano.Ledger.BaseTypes (CertIx (..), Mismatch (..), Network (..), ProtVer (..), StrictMaybe (SNothing), TxIx (..))
 import Cardano.Ledger.Binary.Version (mkVersion)
 import Cardano.Ledger.Coin (Coin (..), DeltaCoin (..))
 import Cardano.Ledger.Conway.Governance (ProposalProcedure, VotingProcedures (..))
@@ -244,6 +244,8 @@ extractLedgerErrors era = \case
     case (stveEra shelleyErr, era) of
       (ShelleyBasedEraConway, C.ShelleyBasedEraConway) ->
         fmap ApplyTxFailure $ wrap $ mapMaybe (readMaybe . T.unpack) (stveErrors shelleyErr)
+      (ShelleyBasedEraBabbage, C.ShelleyBasedEraBabbage) ->
+        fmap ApplyTxFailure $ wrap $ mapMaybe (readMaybe . T.unpack) (stveErrors shelleyErr)
       _ -> Just EraMismatchError
   _ -> Nothing
  where
@@ -267,7 +269,7 @@ pChar :: Char -> Parser ()
 pChar c = char c *> skipSpaces
 
 pParens :: Parser a -> Parser a
-pParens = between (pChar '(') (pChar ')')
+pParens p = skipSpaces *> between (pChar '(') (pChar ')') p
 
 -- Parse constructor with a single field in record syntax: Con {field = value}
 record1 :: String -> String -> Parser a -> Parser a
@@ -426,7 +428,7 @@ stubAlonzoScript lang =
 instance Read (SafeHash i) where
   readsPrec _ = readP_to_S $ tryParens $ do
     ident "SafeHash"
-    hex <- tryParens readP
+    hex <- readP
     case hashFromTextAsHex @HASH (T.pack hex) of
       Nothing -> pfail
       Just h -> pure (unsafeMakeSafeHash h)
@@ -434,15 +436,14 @@ instance Read (SafeHash i) where
 instance Read ScriptHash where
   readsPrec _ = readP_to_S $ tryParens $ do
     ident "ScriptHash"
-    hex <- tryParens readP
+    hex <- readP
     case hashFromTextAsHex @ADDRHASH (T.pack hex) of
       Nothing -> pfail
       Just h -> pure (ScriptHash h)
 
 instance Read (KeyHash r) where
-  readsPrec _ = readP_to_S $ tryParens $ do
-    ident "KeyHash"
-    hex <- tryParens readP
+  readsPrec _ = readP_to_S $ tryParens $ record1 "KeyHash" "unKeyHash" $ do
+    hex <- readP
     case hashFromTextAsHex @ADDRHASH (T.pack hex) of
       Nothing -> pfail
       Just h -> pure (KeyHash h)
@@ -484,12 +485,12 @@ instance Read MaryValue where
 
 -- NOTE: StrictMaybe Read instance already defined in Data.Maybe.Strict
 -- instance Read a => Read (StrictMaybe a) where
---   readsPrec _ = readP_to_S $
+--   readsPrec _ = readP_to_S $ tryParens $
 --     (ident "SNothing" *> pure SNothing)
 --       <|> (SJust <$> con1 "SJust" readP)
 
 instance Read Network where
-  readsPrec _ = readP_to_S $ con0 Testnet "Testnet" <|> con0 Mainnet "Mainnet"
+  readsPrec _ = readP_to_S $ tryParens $ con0 Testnet "Testnet" <|> con0 Mainnet "Mainnet"
 
 instance Read SlotNo where
   readsPrec _ =
@@ -519,7 +520,7 @@ instance Read TxAuxDataHash where
         (TxAuxDataHash <$> record1 "TxAuxDataHash" "unTxAuxDataHash" readP) <|> con1 TxAuxDataHash "TxAuxDataHash"
 
 instance Read DeltaCoin where
-  readsPrec _ = readP_to_S $ con1 DeltaCoin "DeltaCoin"
+  readsPrec _ = readP_to_S $ tryParens $ con1 DeltaCoin "DeltaCoin"
 
 instance (Read a) => Read (ExUnits' a) where
   readsPrec _ = readP_to_S $ tryParens $ do
@@ -538,14 +539,14 @@ instance Read ExUnits where
 
 -- NOTE: Language Read instance already defined in Cardano.Ledger.Plutus.Language
 -- instance Read Language where
---   readsPrec _ = readP_to_S $
+--   readsPrec _ = readP_to_S $ tryParens $
 --     (ident "PlutusV1" *> pure PlutusV1)
 --       <|> (ident "PlutusV2" *> pure PlutusV2)
 --       <|> (ident "PlutusV3" *> pure PlutusV3)
 
 -- ProtVer contains Version which doesn't have a public constructor, skip and parse manually
 instance Read ProtVer where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     ident "ProtVer"
     skipValue
     -- Return a stub ProtVer since we can't parse Version fields
@@ -557,29 +558,32 @@ instance Read ProtVer where
 instance Read VotingPeriod where
   readsPrec _ =
     readP_to_S $
-      con0 VoteForThisEpoch "VoteForThisEpoch"
-        <|> con0 VoteForNextEpoch "VoteForNextEpoch"
+      tryParens $
+        con0 VoteForThisEpoch "VoteForThisEpoch"
+          <|> con0 VoteForNextEpoch "VoteForNextEpoch"
 
 instance Read (ShelleyPpupPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      con1 NonGenesisUpdatePPUP "NonGenesisUpdatePPUP"
-        <|> con3 PPUpdateWrongEpoch "PPUpdateWrongEpoch"
-        <|> con1 PVCannotFollowPPUP "PVCannotFollowPPUP"
+      tryParens $
+        con1 NonGenesisUpdatePPUP "NonGenesisUpdatePPUP"
+          <|> con3 PPUpdateWrongEpoch "PPUpdateWrongEpoch"
+          <|> con1 PVCannotFollowPPUP "PVCannotFollowPPUP"
 
+-- NOTE: Serialisation of AlonzoScript is very broken
 instance (AlonzoEraScript era) => Read (AlonzoScript era) where
   readsPrec _ =
     readP_to_S $
-      (ident "NativeScript" *> skipValue *> pure (stubAlonzoScript (eraMaxLanguage @era)))
-        <|> (ident "PlutusScript" *> (stubAlonzoScript <$> readP <* skipValue))
+      tryParens $
+        (ident "NativeScript" *> skipValue *> pure (stubAlonzoScript (eraMaxLanguage @era)))
+          <|> (ident "PlutusScript" *> (stubAlonzoScript <$> readP <* skipValue))
 
 -- NOTE: Can't have Read instance for type family 'Script era'
 -- instance (AlonzoEraScript era, Script era ~ AlonzoScript era) => Read (Script era) where
 --   readsPrec _ = readP_to_S (readP @(AlonzoScript era))
 
 instance (Era era) => Read (BinaryData era) where
-  readsPrec _ = readP_to_S $ do
-    ident "BinaryData"
+  readsPrec _ = readP_to_S $ tryParens $ do
     sbs <- readP
     case makeBinaryData sbs of
       Left _ -> pfail
@@ -594,27 +598,29 @@ instance (Era era) => Read (Datum era) where
           <|> con1 Datum "Datum"
 
 instance Read IsValid where
-  readsPrec _ = readP_to_S $ con1 IsValid "IsValid"
+  readsPrec _ = readP_to_S $ tryParens $ con1 IsValid "IsValid"
 
 instance Read FailureDescription where
-  readsPrec _ = readP_to_S $ con2 PlutusFailure "PlutusFailure"
+  readsPrec _ = readP_to_S $ tryParens $ con2 PlutusFailure "PlutusFailure"
 
 instance Read TagMismatchDescription where
   readsPrec _ =
     readP_to_S $
-      con0 PassedUnexpectedly "PassedUnexpectedly"
-        <|> con1 FailedUnexpectedly "FailedUnexpectedly"
+      tryParens $
+        con0 PassedUnexpectedly "PassedUnexpectedly"
+          <|> con1 FailedUnexpectedly "FailedUnexpectedly"
 
 instance (Read it) => Read (AsItem ix it) where
   readsPrec _ =
     readP_to_S $
-      (AsItem <$> record1 "AsItem" "unAsItem" readP) <|> con1 AsItem "AsItem"
+      tryParens $
+        (AsItem <$> record1 "AsItem" "unAsItem" readP) <|> con1 AsItem "AsItem"
 
 instance (Read ix) => Read (AsIx ix it) where
-  readsPrec _ = readP_to_S $ (AsIx <$> record1 "AsIx" "unAsIx" readP) <|> con1 AsIx "AsIx"
+  readsPrec _ = readP_to_S $ tryParens $ (AsIx <$> record1 "AsIx" "unAsIx" readP) <|> con1 AsIx "AsIx"
 
 instance Read (DSIGN.VerKeyDSIGN DSIGN) where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     ident "VerKeyEd25519DSIGN"
     hex <- readP
     case B16.decode (BSC.pack hex) of
@@ -624,17 +630,17 @@ instance Read (DSIGN.VerKeyDSIGN DSIGN) where
         Just vk -> pure vk
 
 instance Read (VKey kd) where
-  readsPrec _ = readP_to_S $ con1 VKey "VKey"
+  readsPrec _ = readP_to_S $ tryParens $ con1 VKey "VKey"
 
 -- UTxO is complex, so we skip parsing its contents
 instance Read (UTxO era) where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     ident "UTxO"
     skipValue
     pure (UTxO Map.empty)
 
 instance (Read a) => Read (Mismatch r a) where
-  readsPrec _ = readP_to_S $ pParens $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     ident "Mismatch"
     _ <- optional (pParens (ident "RelEQ" <|> ident "RelLTEQ" <|> ident "RelGTEQ" <|> ident "RelLT" <|> ident "RelGT" <|> ident "RelSubset"))
     (recordStyle <|> positionalStyle)
@@ -657,16 +663,16 @@ instance (Read a) => Read (Mismatch r a) where
 -- Currently commented out until cardano-data is upgraded.
 --
 -- instance (Ord a, Read a) => Read (NonEmptySet a) where
---   readsPrec _ = readP_to_S $ do
+--   readsPrec _ = readP_to_S $ tryParens $ do
 --     _ <- optional (ident "NonEmptySet")
---     let setParser = con1 "fromList" (pBrackets (sepBy readP (pChar ',')))
---     set <- tryParens setParser <|> setParser
+--     let setParser = setParser (con1 "fromList" (pBrackets (sepBy readP (pChar ','))))
+--     set <- setParser
 --     case NonEmptySet.fromFoldable set of
 --       Nothing -> pfail
 --       Just nes -> pure nes
 
 -- instance (Ord k, Read k, Read v) => Read (NonEmptyMap k v) where
---   readsPrec _ = readP_to_S $ do
+--   readsPrec _ = readP_to_S $ tryParens $ do
 --     ident "NonEmptyMap"
 --     m <- tryParens readP <|> readP
 --     case NonEmptyMap.fromMap m of
@@ -676,29 +682,33 @@ instance (Read a) => Read (Mismatch r a) where
 instance Read (Credential r) where
   readsPrec _ =
     readP_to_S $
-      con1 KeyHashObj "KeyHashObj"
-        <|> con1 ScriptHashObj "ScriptHashObj"
+      tryParens $
+        con1 KeyHashObj "KeyHashObj"
+          <|> con1 ScriptHashObj "ScriptHashObj"
 
 instance Read AddrType where
   readsPrec _ =
     readP_to_S $
-      con0 ATVerKey "ATVerKey"
-        <|> con0 ATRedeem "ATRedeem"
+      tryParens $
+        con0 ATVerKey "ATVerKey"
+          <|> con0 ATRedeem "ATRedeem"
 
 instance Read NetworkMagic where
   readsPrec _ =
     readP_to_S $
-      con0 NetworkMainOrStage "NetworkMainOrStage"
-        <|> con1 NetworkTestnet "NetworkTestnet"
+      tryParens $
+        con0 NetworkMainOrStage "NetworkMainOrStage"
+          <|> con1 NetworkTestnet "NetworkTestnet"
 
 instance Read HDAddressPayload where
   readsPrec _ =
     readP_to_S $
-      (HDAddressPayload <$> record1 "HDAddressPayload" "getHDAddressPayload" readP)
-        <|> con1 HDAddressPayload "HDAddressPayload"
+      tryParens $
+        (HDAddressPayload <$> record1 "HDAddressPayload" "getHDAddressPayload" readP)
+          <|> con1 HDAddressPayload "HDAddressPayload"
 
 instance Read AddrAttributes where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     (path, magic) <-
       record2
         "AddrAttributes"
@@ -707,7 +717,7 @@ instance Read AddrAttributes where
     pure (AddrAttributes path magic)
 
 instance Read (Attributes AddrAttributes) where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     ident "Attributes"
     pChar '{'
     ident "data_"
@@ -725,26 +735,27 @@ instance Read (Attributes AddrAttributes) where
     pure (Attributes attrs (UnparsedFields Map.empty))
 
 instance Read Address where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     (root, attrs, addrTy) <-
       record3
         "Address"
-        ("addrRoot", readP)
+        ("addrRoot", read <$> sequenceA (replicate 56 get))
         ("addrAttributes", readP)
         ("addrType", readP)
     pure (Address root attrs addrTy)
 
 instance Read BootstrapAddress where
-  readsPrec _ = readP_to_S $ con1 BootstrapAddress "BootstrapAddress"
+  readsPrec _ = readP_to_S $ tryParens $ con1 BootstrapAddress "BootstrapAddress"
 
 instance Read Addr where
   readsPrec _ =
     readP_to_S $
-      con3 Addr "Addr"
-        <|> con1 AddrBootstrap "AddrBootstrap"
+      tryParens $
+        con3 Addr "Addr"
+          <|> con1 AddrBootstrap "AddrBootstrap"
 
 instance Read RewardAccount where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     (network, cred) <-
       record2
         "RewardAccount"
@@ -755,37 +766,37 @@ instance Read RewardAccount where
 instance Read Withdrawals where
   readsPrec _ =
     readP_to_S $
-      (Withdrawals <$> record1 "Withdrawals" "unWithdrawals" readP) <|> con1 Withdrawals "Withdrawals"
+      tryParens $
+        (Withdrawals <$> record1 "Withdrawals" "unWithdrawals" readP) <|> con1 Withdrawals "Withdrawals"
 
 instance Read StakeReference where
   readsPrec _ =
     readP_to_S $
-      con1 StakeRefBase "StakeRefBase"
-        <|> con1 StakeRefPtr "StakeRefPtr"
-        <|> con0 StakeRefNull "StakeRefNull"
+      tryParens $
+        con1 StakeRefBase "StakeRefBase"
+          <|> con1 StakeRefPtr "StakeRefPtr"
+          <|> con0 StakeRefNull "StakeRefNull"
 
 instance Read SlotNo32 where
   readsPrec _ =
     readP_to_S $
-      (SlotNo32 <$> record1 "SlotNo32" "unSlotNo32" readP) <|> con1 SlotNo32 "SlotNo32"
+      tryParens $
+        (SlotNo32 <$> record1 "SlotNo32" "unSlotNo32" readP) <|> con1 SlotNo32 "SlotNo32"
 
 -- Ptr contains CertIx which has no Read instance, skip parsing
 instance Read Ptr where
-  readsPrec _ = readP_to_S $ do
-    ident "Ptr"
-    skipValue
-    pure (Ptr (SlotNo32 0) (TxIx 0) stubCertIx)
-   where
-    -- CertIx doesn't export its constructor, so we skip it
-    stubCertIx = error "CertIx stub - cannot parse"
+  readsPrec _ = readP_to_S $ tryParens $ con3 Ptr "Ptr"
+
+instance Read CertIx where
+  readsPrec _ = readP_to_S $ tryParens $ CertIx <$> record1 "CertIx" "unCertIx" readP
 
 instance (Era era, Val (Ledger.Value era), Read (Ledger.Value era)) => Read (ShelleyTxOut era) where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     (addr, value) <- readP
     pure (ShelleyTxOut addr value)
 
 instance (Era era, Val (Ledger.Value era), Read (Ledger.Value era)) => Read (AlonzoTxOut era) where
-  readsPrec _ = readP_to_S $ do
+  readsPrec _ = readP_to_S $ tryParens $ do
     (addr, value, mDataHash) <- readP
     pure (AlonzoTxOut addr value mDataHash)
 
@@ -799,8 +810,16 @@ instance
   => Read (BabbageTxOut era)
   where
   readsPrec _ = readP_to_S $ do
-    (addr, value, datum, refScript) <- readP
-    pure (BabbageTxOut addr value datum refScript)
+    pChar '('
+    addr <- readP
+    pChar ','
+    value <- readP
+    pChar ','
+    datum <- readP
+    pChar ','
+    skipValue
+    pChar ')'
+    pure (BabbageTxOut addr value datum SNothing)
 
 instance Read TxOutSource where
   readsPrec _ =
@@ -818,14 +837,14 @@ instance Read (AlonzoPlutusPurpose AsIx era) where
           <|> con1 AlonzoCertifying "AlonzoCertifying"
           <|> con1 AlonzoRewarding "AlonzoRewarding"
 
-instance Read (AlonzoPlutusPurpose AsItem era) where
+instance (ConwayEraTxCert era) => Read (AlonzoPlutusPurpose AsItem era) where
   readsPrec _ =
     readP_to_S $
       tryParens $
         con1 AlonzoSpending "AlonzoSpending"
           <|> con1 AlonzoMinting "AlonzoMinting"
           -- AlonzoCertifying contains TxCert which has no Read instance, cannot parse
-          <|> (ident "AlonzoCertifying" *> skipValue *> pfail)
+          <|> (ident "AlonzoCertifying" *> skipValue *> pure (AlonzoCertifying (AsItem stubTxCert)))
           <|> con1 AlonzoRewarding "AlonzoRewarding"
 
 instance Read (ConwayPlutusPurpose AsIx era) where
@@ -839,14 +858,14 @@ instance Read (ConwayPlutusPurpose AsIx era) where
           <|> con1 ConwayVoting "ConwayVoting"
           <|> con1 ConwayProposing "ConwayProposing"
 
-instance Read (ConwayPlutusPurpose AsItem era) where
+instance (ConwayEraTxCert era) => Read (ConwayPlutusPurpose AsItem era) where
   readsPrec _ =
     readP_to_S $
       tryParens $
         con1 ConwaySpending "ConwaySpending"
           <|> con1 ConwayMinting "ConwayMinting"
           -- ConwayCertifying contains TxCert which has no Read instance, cannot parse
-          <|> (ident "ConwayCertifying" *> skipValue *> pfail)
+          <|> (ident "ConwayCertifying" *> skipValue *> pure (ConwayCertifying (AsItem stubTxCert)))
           <|> con1 ConwayRewarding "ConwayRewarding"
           -- ConwayVoting contains Voter which has no Read instance, cannot parse
           <|> (ident "ConwayVoting" *> skipValue *> pfail)
@@ -891,127 +910,127 @@ instance (Read (PlutusPurpose AsIx era), Read (PlutusPurpose AsItem era), Conway
           <|> (ident "VotingProceduresFieldNotSupported" *> skipValue *> pure (VotingProceduresFieldNotSupported (VotingProcedures Map.empty)))
           <|> (ident "ProposalProceduresFieldNotSupported" *> skipValue *> pure (ProposalProceduresFieldNotSupported stubProposalProcedures))
           <|> con1 TreasuryDonationFieldNotSupported "TreasuryDonationFieldNotSupported"
+          <|> con1 ReferenceInputsNotDisjointFromInputs "ReferenceInputsNotDisjointFromInputs"
 
 -- Dijkstra era instance - commented out until cardano-ledger-dijkstra is available
 -- instance ConwayEraTxCert era => Read (DijkstraTxInfo.DijkstraContextError era) where
---   readsPrec _ = readP_to_S $
+--   readsPrec _ = readP_to_S $ tryParens $
 --     DijkstraTxInfo.ConwayContextError <$> con1 "ConwayContextError" readP
 
 instance (Read (TxOut era), Read (Ledger.Value era), Read (EraRuleFailure "PPUP" era)) => Read (ShelleyRules.ShelleyUtxoPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      con1 ShelleyRules.BadInputsUTxO "BadInputsUTxO"
-        <|> con1 ShelleyRules.ExpiredUTxO "ExpiredUTxO"
-        <|> con1 ShelleyRules.MaxTxSizeUTxO "MaxTxSizeUTxO"
-        <|> con0 ShelleyRules.InputSetEmptyUTxO "InputSetEmptyUTxO"
-        <|> con1 ShelleyRules.FeeTooSmallUTxO "FeeTooSmallUTxO"
-        <|> con1 ShelleyRules.ValueNotConservedUTxO "ValueNotConservedUTxO"
-        <|> con2 ShelleyRules.WrongNetwork "WrongNetwork"
-        <|> con2 ShelleyRules.WrongNetworkWithdrawal "WrongNetworkWithdrawal"
-        <|> con1 ShelleyRules.OutputTooSmallUTxO "OutputTooSmallUTxO"
-        <|> con1 ShelleyRules.UpdateFailure "UpdateFailure"
-        <|> con1 ShelleyRules.OutputBootAddrAttrsTooBig "OutputBootAddrAttrsTooBig"
+      tryParens $
+        con1 ShelleyRules.BadInputsUTxO "BadInputsUTxO"
+          <|> con1 ShelleyRules.ExpiredUTxO "ExpiredUTxO"
+          <|> con1 ShelleyRules.MaxTxSizeUTxO "MaxTxSizeUTxO"
+          <|> con0 ShelleyRules.InputSetEmptyUTxO "InputSetEmptyUTxO"
+          <|> con1 ShelleyRules.FeeTooSmallUTxO "FeeTooSmallUTxO"
+          <|> con1 ShelleyRules.ValueNotConservedUTxO "ValueNotConservedUTxO"
+          <|> con2 ShelleyRules.WrongNetwork "WrongNetwork"
+          <|> con2 ShelleyRules.WrongNetworkWithdrawal "WrongNetworkWithdrawal"
+          <|> con1 ShelleyRules.OutputTooSmallUTxO "OutputTooSmallUTxO"
+          <|> con1 ShelleyRules.UpdateFailure "UpdateFailure"
+          <|> con1 ShelleyRules.OutputBootAddrAttrsTooBig "OutputBootAddrAttrsTooBig"
 
 instance (Read (PredicateFailure (EraRule "UTXO" era))) => Read (ShelleyRules.ShelleyUtxowPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      -- UtxoFailure contains era-specific failure type
-      con1 ShelleyRules.UtxoFailure "UtxoFailure"
-        <|> con1 ShelleyRules.InvalidWitnessesUTXOW "InvalidWitnessesUTXOW"
-        <|> con1 ShelleyRules.MissingVKeyWitnessesUTXOW "MissingVKeyWitnessesUTXOW"
-        <|> con1 ShelleyRules.MissingScriptWitnessesUTXOW "MissingScriptWitnessesUTXOW"
-        <|> con1 ShelleyRules.ScriptWitnessNotValidatingUTXOW "ScriptWitnessNotValidatingUTXOW"
-        <|> con1 ShelleyRules.MIRInsufficientGenesisSigsUTXOW "MIRInsufficientGenesisSigsUTXOW"
-        <|> con1 ShelleyRules.MissingTxBodyMetadataHash "MissingTxBodyMetadataHash"
-        <|> con1 ShelleyRules.MissingTxMetadata "MissingTxMetadata"
-        <|> con1 ShelleyRules.ConflictingMetadataHash "ConflictingMetadataHash"
-        <|> con0 ShelleyRules.InvalidMetadata "InvalidMetadata"
-        <|> con1 ShelleyRules.ExtraneousScriptWitnessesUTXOW "ExtraneousScriptWitnessesUTXOW"
+      tryParens $
+        -- UtxoFailure contains era-specific failure type
+        con1 ShelleyRules.UtxoFailure "UtxoFailure"
+          <|> con1 ShelleyRules.InvalidWitnessesUTXOW "InvalidWitnessesUTXOW"
+          <|> con1 ShelleyRules.MissingVKeyWitnessesUTXOW "MissingVKeyWitnessesUTXOW"
+          <|> con1 ShelleyRules.MissingScriptWitnessesUTXOW "MissingScriptWitnessesUTXOW"
+          <|> con1 ShelleyRules.ScriptWitnessNotValidatingUTXOW "ScriptWitnessNotValidatingUTXOW"
+          <|> con1 ShelleyRules.MIRInsufficientGenesisSigsUTXOW "MIRInsufficientGenesisSigsUTXOW"
+          <|> con1 ShelleyRules.MissingTxBodyMetadataHash "MissingTxBodyMetadataHash"
+          <|> con1 ShelleyRules.MissingTxMetadata "MissingTxMetadata"
+          <|> con1 ShelleyRules.ConflictingMetadataHash "ConflictingMetadataHash"
+          <|> con0 ShelleyRules.InvalidMetadata "InvalidMetadata"
+          <|> con1 ShelleyRules.ExtraneousScriptWitnessesUTXOW "ExtraneousScriptWitnessesUTXOW"
 
 instance (Read (Ledger.Value era), Read (TxOut era), Read (EraRuleFailure "PPUP" era)) => Read (AllegraRules.AllegraUtxoPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      con1 AllegraRules.BadInputsUTxO "BadInputsUTxO"
-        <|> con2 AllegraRules.OutsideValidityIntervalUTxO "OutsideValidityIntervalUTxO"
-        <|> con1 AllegraRules.MaxTxSizeUTxO "MaxTxSizeUTxO"
-        <|> con0 AllegraRules.InputSetEmptyUTxO "InputSetEmptyUTxO"
-        <|> con1 AllegraRules.FeeTooSmallUTxO "FeeTooSmallUTxO"
-        <|> con1 AllegraRules.ValueNotConservedUTxO "ValueNotConservedUTxO"
-        <|> con2 AllegraRules.WrongNetwork "WrongNetwork"
-        <|> con2 AllegraRules.WrongNetworkWithdrawal "WrongNetworkWithdrawal"
-        <|> con1 AllegraRules.OutputTooSmallUTxO "OutputTooSmallUTxO"
-        <|> con1 AllegraRules.UpdateFailure "UpdateFailure"
-        <|> con1 AllegraRules.OutputBootAddrAttrsTooBig "OutputBootAddrAttrsTooBig"
-        <|> con1 AllegraRules.OutputTooBigUTxO "OutputTooBigUTxO"
+      tryParens $
+        con1 AllegraRules.BadInputsUTxO "BadInputsUTxO"
+          <|> con2 AllegraRules.OutsideValidityIntervalUTxO "OutsideValidityIntervalUTxO"
+          <|> con1 AllegraRules.MaxTxSizeUTxO "MaxTxSizeUTxO"
+          <|> con0 AllegraRules.InputSetEmptyUTxO "InputSetEmptyUTxO"
+          <|> con1 AllegraRules.FeeTooSmallUTxO "FeeTooSmallUTxO"
+          <|> con1 AllegraRules.ValueNotConservedUTxO "ValueNotConservedUTxO"
+          <|> con2 AllegraRules.WrongNetwork "WrongNetwork"
+          <|> con2 AllegraRules.WrongNetworkWithdrawal "WrongNetworkWithdrawal"
+          <|> con1 AllegraRules.OutputTooSmallUTxO "OutputTooSmallUTxO"
+          <|> con1 AllegraRules.UpdateFailure "UpdateFailure"
+          <|> con1 AllegraRules.OutputBootAddrAttrsTooBig "OutputBootAddrAttrsTooBig"
+          <|> con1 AllegraRules.OutputTooBigUTxO "OutputTooBigUTxO"
 
 instance (Read (PredicateFailure (EraRule "UTXOS" era)), Read (Ledger.Value era), Read (TxOut era)) => Read (AlonzoRules.AlonzoUtxoPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      con1 AlonzoRules.BadInputsUTxO "BadInputsUTxO"
-        <|> con2 AlonzoRules.OutsideValidityIntervalUTxO "OutsideValidityIntervalUTxO"
-        <|> con1 AlonzoRules.MaxTxSizeUTxO "MaxTxSizeUTxO"
-        <|> con0 AlonzoRules.InputSetEmptyUTxO "InputSetEmptyUTxO"
-        <|> con1 AlonzoRules.FeeTooSmallUTxO "FeeTooSmallUTxO"
-        <|> con1 AlonzoRules.ValueNotConservedUTxO "ValueNotConservedUTxO"
-        <|> con2 AlonzoRules.WrongNetwork "WrongNetwork"
-        <|> con2 AlonzoRules.WrongNetworkWithdrawal "WrongNetworkWithdrawal"
-        <|> con1 AlonzoRules.OutputTooSmallUTxO "OutputTooSmallUTxO"
-        <|> con1 AlonzoRules.UtxosFailure "UtxosFailure"
-        <|> con1 AlonzoRules.OutputBootAddrAttrsTooBig "OutputBootAddrAttrsTooBig"
-        <|> con1 AlonzoRules.OutputTooBigUTxO "OutputTooBigUTxO"
-        <|> con2 AlonzoRules.InsufficientCollateral "InsufficientCollateral"
-        <|> (ident "ScriptsNotPaidUTxO" *> skipValue *> pfail) -- No Read instance for UTxO era
-        <|> con1 AlonzoRules.ExUnitsTooBigUTxO "ExUnitsTooBigUTxO"
-        <|> con1 AlonzoRules.CollateralContainsNonADA "CollateralContainsNonADA"
-        <|> con1 AlonzoRules.WrongNetworkInTxBody "WrongNetworkInTxBody"
-        <|> con1 AlonzoRules.OutsideForecast "OutsideForecast"
-        <|> con1 AlonzoRules.TooManyCollateralInputs "TooManyCollateralInputs"
-        <|> con0 AlonzoRules.NoCollateralInputs "NoCollateralInputs"
+      tryParens $
+        con1 AlonzoRules.BadInputsUTxO "BadInputsUTxO"
+          <|> con2 AlonzoRules.OutsideValidityIntervalUTxO "OutsideValidityIntervalUTxO"
+          <|> con1 AlonzoRules.MaxTxSizeUTxO "MaxTxSizeUTxO"
+          <|> con0 AlonzoRules.InputSetEmptyUTxO "InputSetEmptyUTxO"
+          <|> con1 AlonzoRules.FeeTooSmallUTxO "FeeTooSmallUTxO"
+          <|> con1 AlonzoRules.ValueNotConservedUTxO "ValueNotConservedUTxO"
+          <|> con2 AlonzoRules.WrongNetwork "WrongNetwork"
+          <|> con2 AlonzoRules.WrongNetworkWithdrawal "WrongNetworkWithdrawal"
+          <|> con1 AlonzoRules.OutputTooSmallUTxO "OutputTooSmallUTxO"
+          <|> con1 AlonzoRules.UtxosFailure "UtxosFailure"
+          <|> con1 AlonzoRules.OutputBootAddrAttrsTooBig "OutputBootAddrAttrsTooBig"
+          <|> con1 AlonzoRules.OutputTooBigUTxO "OutputTooBigUTxO"
+          <|> con2 AlonzoRules.InsufficientCollateral "InsufficientCollateral"
+          <|> con1 AlonzoRules.ScriptsNotPaidUTxO "ScriptsNotPaidUTxO"
+          <|> con1 AlonzoRules.ExUnitsTooBigUTxO "ExUnitsTooBigUTxO"
+          <|> con1 AlonzoRules.CollateralContainsNonADA "CollateralContainsNonADA"
+          <|> con1 AlonzoRules.WrongNetworkInTxBody "WrongNetworkInTxBody"
+          <|> con1 AlonzoRules.OutsideForecast "OutsideForecast"
+          <|> con1 AlonzoRules.TooManyCollateralInputs "TooManyCollateralInputs"
+          <|> con0 AlonzoRules.NoCollateralInputs "NoCollateralInputs"
 
-instance (Read (PredicateFailure (EraRule "UTXO" era))) => Read (AlonzoRules.AlonzoUtxowPredFailure era) where
+instance (Read (PlutusPurpose AsItem era), Read (PlutusPurpose AsIx era), Read (PredicateFailure (EraRule "UTXO" era))) => Read (AlonzoRules.AlonzoUtxowPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      con1 AlonzoRules.ShelleyInAlonzoUtxowPredFailure "ShelleyInAlonzoUtxowPredFailure"
-        -- MissingRedeemers contains PlutusPurpose which has no Read instance
-        <|> (ident "MissingRedeemers" *> skipValue *> pure (AlonzoRules.MissingRedeemers []))
-        <|> con2 AlonzoRules.MissingRequiredDatums "MissingRequiredDatums"
-        <|> con2 AlonzoRules.NotAllowedSupplementalDatums "NotAllowedSupplementalDatums"
-        <|> con1 AlonzoRules.PPViewHashesDontMatch "PPViewHashesDontMatch"
-        <|> con1 AlonzoRules.UnspendableUTxONoDatumHash "UnspendableUTxONoDatumHash"
-        -- ExtraRedeemers contains PlutusPurpose which has no Read instance
-        <|> (ident "ExtraRedeemers" *> skipValue *> pure (AlonzoRules.ExtraRedeemers []))
+      tryParens $
+        con1 AlonzoRules.ShelleyInAlonzoUtxowPredFailure "ShelleyInAlonzoUtxowPredFailure"
+          <|> con1 AlonzoRules.MissingRedeemers "MissingRedeemers"
+          <|> con2 AlonzoRules.MissingRequiredDatums "MissingRequiredDatums"
+          <|> con2 AlonzoRules.NotAllowedSupplementalDatums "NotAllowedSupplementalDatums"
+          <|> con1 AlonzoRules.PPViewHashesDontMatch "PPViewHashesDontMatch"
+          <|> con1 AlonzoRules.UnspendableUTxONoDatumHash "UnspendableUTxONoDatumHash"
+          <|> con2 AlonzoRules.ScriptIntegrityHashMismatch "ScriptIntegrityHashMismatch"
+          <|> con1 AlonzoRules.ExtraRedeemers "ExtraRedeemers"
 
--- NOTE: ScriptIntegrityHashMismatch not exported in cardano-ledger-alonzo < 1.11
--- <|> con2 AlonzoRules.ScriptIntegrityHashMismatch "ScriptIntegrityHashMismatch"
-
-instance (Read (PlutusPurpose AsItem era), Read (ContextError era)) => Read (AlonzoRules.AlonzoUtxosPredFailure era) where
+instance (Read (EraRuleFailure "PPUP" era), Read (PlutusPurpose AsItem era), Read (ContextError era)) => Read (AlonzoRules.AlonzoUtxosPredFailure era) where
   readsPrec _ =
     readP_to_S $
       tryParens $
         con2 AlonzoRules.ValidationTagMismatch "ValidationTagMismatch"
           <|> con1 AlonzoRules.CollectErrors "CollectErrors"
-          -- UpdateFailure contains era-specific type
-          <|> (ident "UpdateFailure" *> skipValue *> pfail)
+          <|> con1 AlonzoRules.UpdateFailure "UpdateFailure"
 
-instance Read (BabbageRules.BabbageUtxoPredFailure era) where
+instance (Read (PredicateFailure (EraRule "UTXOS" era)), Read (Ledger.Value era), Read (TxOut era)) => Read (BabbageRules.BabbageUtxoPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      -- AlonzoInBabbageUtxoPredFailure contains era-specific type
-      (ident "AlonzoInBabbageUtxoPredFailure" *> skipValue *> pfail)
-        <|> con2 BabbageRules.IncorrectTotalCollateralField "IncorrectTotalCollateralField"
-        -- BabbageOutputTooSmallUTxO contains TxOut which has no Read instance
-        <|> (ident "BabbageOutputTooSmallUTxO" *> skipValue *> pfail)
-        <|> con1 BabbageRules.BabbageNonDisjointRefInputs "BabbageNonDisjointRefInputs"
+      tryParens $
+        con1 BabbageRules.AlonzoInBabbageUtxoPredFailure "AlonzoInBabbageUtxoPredFailure"
+          <|> con2 BabbageRules.IncorrectTotalCollateralField "IncorrectTotalCollateralField"
+          <|> con1 BabbageRules.BabbageOutputTooSmallUTxO "BabbageOutputTooSmallUTxO"
+          <|> con1 BabbageRules.BabbageNonDisjointRefInputs "BabbageNonDisjointRefInputs"
 
-instance (Read (PredicateFailure (EraRule "UTXO" era))) => Read (BabbageRules.BabbageUtxowPredFailure era) where
+instance (Read (PredicateFailure (EraRule "UTXO" era)), Read (PlutusPurpose AsItem era), Read (PlutusPurpose AsIx era)) => Read (BabbageRules.BabbageUtxowPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      -- AlonzoInBabbageUtxowPredFailure contains era-specific type
-      (ident "AlonzoInBabbageUtxowPredFailure" *> skipValue *> pfail)
-        -- UtxoFailure contains era-specific type
-        <|> con1 BabbageRules.UtxoFailure "UtxoFailure"
-        <|> con1 BabbageRules.MalformedScriptWitnesses "MalformedScriptWitnesses"
-        <|> con1 BabbageRules.MalformedReferenceScripts "MalformedReferenceScripts"
+      tryParens $
+        con1 BabbageRules.AlonzoInBabbageUtxowPredFailure "AlonzoInBabbageUtxowPredFailure"
+          <|> con1 BabbageRules.UtxoFailure "UtxoFailure"
+          <|> con1 BabbageRules.MalformedScriptWitnesses "MalformedScriptWitnesses"
+          <|> con1 BabbageRules.MalformedReferenceScripts "MalformedReferenceScripts"
+          <|> con2 BabbageRules.ScriptIntegrityHashMismatch "ScriptIntegrityHashMismatch"
 
 instance (Read (PredicateFailure (EraRule "UTXOS" era)), Read (Ledger.Value era), Read (TxOut era)) => Read (ConwayRules.ConwayUtxoPredFailure era) where
   readsPrec _ =
@@ -1030,8 +1049,7 @@ instance (Read (PredicateFailure (EraRule "UTXOS" era)), Read (Ledger.Value era)
           <|> con1 ConwayRules.OutputBootAddrAttrsTooBig "OutputBootAddrAttrsTooBig"
           <|> con1 ConwayRules.OutputTooBigUTxO "OutputTooBigUTxO"
           <|> con2 ConwayRules.InsufficientCollateral "InsufficientCollateral"
-          -- ScriptsNotPaidUTxO contains UTxO which has no Read instance
-          <|> (ident "ScriptsNotPaidUTxO" *> skipValue *> pure ConwayRules.InputSetEmptyUTxO)
+          <|> con1 ConwayRules.ScriptsNotPaidUTxO "ScriptsNotPaidUTxO"
           <|> con1 ConwayRules.ExUnitsTooBigUTxO "ExUnitsTooBigUTxO"
           <|> con1 ConwayRules.CollateralContainsNonADA "CollateralContainsNonADA"
           <|> con1 ConwayRules.WrongNetworkInTxBody "WrongNetworkInTxBody"
@@ -1065,6 +1083,7 @@ instance (Read (PredicateFailure (EraRule "UTXO" era)), Read (PlutusPurpose AsIt
           <|> con1 ConwayRules.ExtraRedeemers "ExtraRedeemers"
           <|> con1 ConwayRules.MalformedScriptWitnesses "MalformedScriptWitnesses"
           <|> con1 ConwayRules.MalformedReferenceScripts "MalformedReferenceScripts"
+          <|> con2 ConwayRules.ScriptIntegrityHashMismatch "ScriptIntegrityHashMismatch"
 
 instance (Read (PlutusPurpose AsItem era), Read (ContextError era)) => Read (ConwayRules.ConwayUtxosPredFailure era) where
   readsPrec _ =
@@ -1075,7 +1094,7 @@ instance (Read (PlutusPurpose AsItem era), Read (ContextError era)) => Read (Con
 
 -- Dijkstra era instances - commented out until cardano-ledger-dijkstra is available
 -- instance Read (DijkstraUtxoRules.DijkstraUtxoPredFailure era) where
---   readsPrec _ = readP_to_S $
+--   readsPrec _ = readP_to_S $ tryParens $
 --     (DijkstraUtxoRules.UtxosFailure <$> con1 "UtxosFailure" readP)
 --       <|> (DijkstraUtxoRules.BadInputsUTxO <$> con1 "BadInputsUTxO" readP)
 --       <|> (DijkstraUtxoRules.OutsideValidityIntervalUTxO <$> con2 "OutsideValidityIntervalUTxO" readP readP)
@@ -1102,7 +1121,7 @@ instance (Read (PlutusPurpose AsItem era), Read (ContextError era)) => Read (Con
 --       <|> (DijkstraUtxoRules.PtrPresentInCollateralReturn <$> con1 "PtrPresentInCollateralReturn" readP)
 
 -- instance Read (DijkstraUtxowRules.DijkstraUtxowPredFailure era) where
---   readsPrec _ = readP_to_S $
+--   readsPrec _ = readP_to_S $ tryParens $
 --     (DijkstraUtxowRules.UtxoFailure <$> con1 "UtxoFailure" readP)
 --       <|> (DijkstraUtxowRules.InvalidWitnessesUTXOW <$> con1 "InvalidWitnessesUTXOW" readP)
 --       <|> (DijkstraUtxowRules.MissingVKeyWitnessesUTXOW <$> con1 "MissingVKeyWitnessesUTXOW" readP)
@@ -1126,25 +1145,27 @@ instance (Read (PlutusPurpose AsItem era), Read (ContextError era)) => Read (Con
 instance Read (ShelleyLedgerPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      (ident "UtxowFailure" *> skipValue *> pfail) -- No Read instance for PredicateFailure
-      -- DelegsFailure requires era-specific type, skip and return stub UtxowFailure
-        <|> (ident "DelegsFailure" *> skipValue *> pfail)
+      tryParens $
+        (ident "UtxowFailure" *> skipValue *> pfail) -- No Read instance for PredicateFailure
+        -- DelegsFailure requires era-specific type, skip and return stub UtxowFailure
+          <|> (ident "DelegsFailure" *> skipValue *> pfail)
 
 instance (Read (PredicateFailure (EraRule "UTXOW" era))) => Read (ConwayLedgerPredFailure era) where
   readsPrec _ =
     readP_to_S $
-      con1 ConwayUtxowFailure "ConwayUtxowFailure"
-        -- ConwayCertsFailure and ConwayGovFailure require era-specific types, skip
-        <|> (ident "ConwayCertsFailure" *> skipValue *> pfail)
-        <|> (ident "ConwayGovFailure" *> skipValue *> pfail)
-        <|> con1 ConwayWdrlNotDelegatedToDRep "ConwayWdrlNotDelegatedToDRep"
-        <|> con1 ConwayTreasuryValueMismatch "ConwayTreasuryValueMismatch"
-        <|> con1 ConwayTxRefScriptsSizeTooBig "ConwayTxRefScriptsSizeTooBig"
-        <|> con1 ConwayMempoolFailure "ConwayMempoolFailure"
+      tryParens $
+        con1 ConwayUtxowFailure "ConwayUtxowFailure"
+          -- ConwayCertsFailure and ConwayGovFailure require era-specific types, skip
+          <|> (ident "ConwayCertsFailure" *> skipValue *> pfail)
+          <|> (ident "ConwayGovFailure" *> skipValue *> pfail)
+          <|> con1 ConwayWdrlNotDelegatedToDRep "ConwayWdrlNotDelegatedToDRep"
+          <|> con1 ConwayTreasuryValueMismatch "ConwayTreasuryValueMismatch"
+          <|> con1 ConwayTxRefScriptsSizeTooBig "ConwayTxRefScriptsSizeTooBig"
+          <|> con1 ConwayMempoolFailure "ConwayMempoolFailure"
 
 -- Dijkstra era instance - commented out until cardano-ledger-dijkstra is available
 -- instance Read (DijkstraLedgerPredFailure era) where
---   readsPrec _ = readP_to_S $
+--   readsPrec _ = readP_to_S $ tryParens $
 --     (DijkstraUtxowFailure <$> con1 "DijkstraUtxowFailure" readP)
 --       <|> (ident "DijkstraCertsFailure" *> skipValue *> pure (DijkstraCertsFailure stubConwayCertsPredFailure))
 --       <|> (ident "DijkstraGovFailure" *> skipValue *> pure (DijkstraGovFailure stubConwayGovPredFailure))
