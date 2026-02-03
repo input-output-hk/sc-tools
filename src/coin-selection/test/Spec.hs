@@ -76,6 +76,7 @@ import Convex.NodeParams (
   protocolParameters,
  )
 import Convex.Query (balancePaymentCredentials)
+import Convex.Scripts (toHashableScriptData)
 import Convex.Utils (failOnError, inBabbage)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet (Wallet)
@@ -136,6 +137,7 @@ tests =
         , testCase "spending a singleton output" (mockchainSucceeds $ failOnError (mintingPlutus >>= spendSingletonOutput))
         , testCase "spend an output locked by the matching index script" (mockchainSucceeds $ failOnError matchingIndex)
         , testCase "mint a token with the matching index minting policy" (mockchainSucceeds $ failOnError matchingIndexMP)
+        , testCase "skill example: lookahead spend + mint" (mockchainSucceeds $ failOnError skillExampleLookaheadSpendAndMint)
         ]
     , testGroup
         "mockchain"
@@ -492,6 +494,99 @@ matchingIndexMP = do
       policyId = C.PolicyId sh
       runTx assetName = Scripts.mintMatchingIndex policyId assetName 100
   void $ tryBalanceAndSubmit mempty Wallet.w1 (execBuildTx $ traverse_ runTx ["assetName1", "assetName2", "assetName3"]) TrailingChange []
+
+{- | Skill-evaluation example: build a transaction that:
+  * spends multiple script outputs whose redeemers depend on input indices, and
+  * mints multiple assets whose redeemer depends on the minting policy index.
+
+This mirrors the "lookahead" pattern documented in the transaction skill.
+-}
+skillExampleLookaheadSpendAndMint
+  :: forall m
+   . ( MonadMockchain C.ConwayEra m
+     , MonadError (BalanceTxError C.ConwayEra) m
+     , MonadFail m
+     )
+  => m ()
+skillExampleLookaheadSpendAndMint = do
+  let
+    lockOne =
+      execBuildTx $
+        BuildTx.payToScriptDatumHash
+          Defaults.networkId
+          (plutusScript Scripts.matchingIndexValidatorScript)
+          ()
+          C.NoStakeAddress
+          (C.lovelaceToValue 10_000_000)
+
+    mkLockedInput = do
+      tx <- tryBalanceAndSubmit mempty Wallet.w1 lockOne TrailingChange []
+      pure (C.TxIn (C.getTxId $ C.getTxBody tx) (C.TxIx 0))
+
+  -- Create a few script outputs that require index-dependent redeemers.
+  inputs <- replicateM 2 mkLockedInput
+
+  txb <- BuildTx.execBuildTxT $ do
+    -- Spend inputs with redeemers derived from their final index.
+    traverse_ spendMatchingIndexLike inputs
+
+    -- Mint assets with a redeemer derived from the minting policy index.
+    let
+      mpScript = Scripts.matchingIndexMPScript
+      mpHash = C.hashScript (C.PlutusScript C.PlutusScriptV3 mpScript)
+      policyId = C.PolicyId mpHash
+      a1 = "idxAsset1"
+      a2 = "idxAsset2"
+      q = 1
+
+    mintMatchingIndexLike policyId a1 q
+    mintMatchingIndexLike policyId a2 q
+
+    -- Put minted assets into an explicit output (coin selection would also be able to return them as change).
+    let recipient = Wallet.addressInEra Defaults.networkId Wallet.w2
+        mintedValue = assetValue mpHash a1 q <> assetValue mpHash a2 q
+    payToAddress recipient (mintedValue <> C.lovelaceToValue 3_000_000)
+
+    -- Ensure outputs meet min-UTxO.
+    pp <- queryProtocolParameters
+    setMinAdaDepositAll pp
+
+  void $ tryBalanceAndSubmit mempty Wallet.w1 txb TrailingChange []
+ where
+  spendMatchingIndexLike
+    :: forall era m'
+     . ( BuildTx.MonadBuildTx era m'
+       , C.IsAlonzoBasedEra era
+       , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+       )
+    => C.TxIn
+    -> m' ()
+  spendMatchingIndexLike txi =
+    let witness txBody =
+          C.ScriptWitness C.ScriptWitnessForSpending $
+            BuildTx.buildScriptWitness
+              Scripts.matchingIndexValidatorScript
+              (C.ScriptDatumForTxIn $ Just $ toHashableScriptData ())
+              (fromIntegral @Int @Integer $ BuildTx.findIndexSpending txi txBody)
+     in BuildTx.setScriptsValid >> BuildTx.addInputWithTxBody txi witness
+
+  mintMatchingIndexLike
+    :: forall era m'
+     . ( BuildTx.MonadBuildTx era m'
+       , C.IsAlonzoBasedEra era
+       , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+       )
+    => C.PolicyId
+    -> C.AssetName
+    -> C.Quantity
+    -> m' ()
+  mintMatchingIndexLike policyId assetName quantity =
+    let witness txBody =
+          BuildTx.buildScriptWitness
+            Scripts.matchingIndexMPScript
+            C.NoScriptDatumForMint
+            (fromIntegral @Int @Integer $ BuildTx.findIndexMinted policyId txBody)
+     in BuildTx.setScriptsValid >> BuildTx.addMintWithTxBody policyId assetName quantity witness
 
 queryStakeAddressesTest :: forall m. (MonadIO m, MonadMockchain C.ConwayEra m, MonadError (BalanceTxError C.ConwayEra) m, MonadFail m) => m ()
 queryStakeAddressesTest = do
