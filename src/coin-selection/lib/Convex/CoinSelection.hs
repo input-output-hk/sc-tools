@@ -68,7 +68,6 @@ import Cardano.Api (
   TxOut,
   UTxO (..),
  )
-import Cardano.Api qualified
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental (Certificate (..))
 import Cardano.Api.Ledger (getVKeyWitnessTxCert)
@@ -209,8 +208,6 @@ data CoinSelectionError
   | NotEnoughMixedOutputsFor {valuesNeeded :: C.Value, valueProvided :: C.Value, txBalance :: C.Value}
   | -- | The wallet utxo set is empty
     NoWalletUTxOs
-  | -- | The transaction body needs a collateral input, but there are no inputs that hold nothing but Ada
-    NoAdaOnlyUTxOsForCollateral
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
@@ -370,22 +367,47 @@ balanceTransactionBody
     txbodycontent1 <- balancingError $ substituteExecutionUnits exUnitsMap' csiTxBody
     let txbodycontent1' = txbodycontent1 & set L.txFee (Coin (2 ^ (32 :: Integer) - 1)) & over L.txOuts (|> changeOutputLarge)
 
-    -- append output instead of prepending
     txbody1 <- balancingError . first C.TxBodyError $ C.createTransactionBody C.shelleyBasedEra txbodycontent1'
 
-    let !t_fee = C.calculateMinTxFee C.shelleyBasedEra (C.unLedgerProtocolParameters protocolParams) csiUtxo txbody1 numWits
-    traceWith tracer Txfee{fee = C.lovelaceToQuantity t_fee}
+    let !txFee = C.calculateMinTxFee C.shelleyBasedEra (C.unLedgerProtocolParameters protocolParams) csiUtxo txbody1 numWits
+    traceWith tracer Txfee{fee = C.lovelaceToQuantity txFee}
 
-    let txbodycontent2 = txbodycontent1 & set L.txFee t_fee & appendTxOut csiChangeLatestEraOutput
+    -- Calculate collateral return and total collateral values. This allows
+    -- UTxOs with native assets to be used as collateral.
+    let collateralTxIns = txbodycontent1 ^. L.txInsCollateral . L.txInsCollateralTxIns
+        C.UTxO utxoMap = csiUtxo
+        collateralValue = foldMap (maybe mempty (view (L._TxOut . _2 . L._TxOutValue)) . flip Map.lookup utxoMap) collateralTxIns
+        (C.TxOut changeAddr _ _ _) = csiChangeOutput
+        (retColl, reqCol) =
+          C.babbageEraOnwardsConstraints (C.babbageBasedEra @era) $
+            C.calcReturnAndTotalCollateral
+              C.babbageBasedEra
+              txFee
+              (C.unLedgerProtocolParameters protocolParams)
+              (C.txInsCollateral txbodycontent1)
+              (C.txReturnCollateral txbodycontent1)
+              (C.txTotalCollateral txbodycontent1)
+              changeAddr
+              (C.toMaryValue collateralValue)
+
+        -- Update body with collateral return and total collateral
+        txbodycontent1WithCollateral =
+          txbodycontent1
+            { C.txReturnCollateral = retColl
+            , C.txTotalCollateral = reqCol
+            }
+
+    -- append output instead of prepending
+    let txbodycontent2 = txbodycontent1WithCollateral & set L.txFee txFee & appendTxOut csiChangeLatestEraOutput
     txbody2 <- balancingError . first C.TxBodyError $ C.createTransactionBody C.shelleyBasedEra txbodycontent2
 
     let unregPoolStakeBalance = C.maryEraOnwardsConstraints @era C.maryBasedEra unregBalance protocolParams txbodycontent2
 
-    let !balance = view L._TxOutValue (Cardano.Api.evaluateTransactionBalance C.shelleyBasedEra (C.unLedgerProtocolParameters protocolParams) stakePools unregPoolStakeBalance mempty csiUtxo txbody2)
+    let !balance = view L._TxOutValue (C.evaluateTransactionBalance C.shelleyBasedEra (C.unLedgerProtocolParameters protocolParams) stakePools unregPoolStakeBalance mempty csiUtxo txbody2)
 
     traceWith tracer TxRemainingBalance{remainingBalance = balance}
 
-    mapM_ (\x -> checkMinUTxOValue x protocolParams) $ C.txOuts txbodycontent1
+    mapM_ (\x -> checkMinUTxOValue x protocolParams) $ C.txOuts txbodycontent1WithCollateral
 
     -- debug "balanceTransactionBody: changeOutputBalance"
     changeOutputBalance <- case C.valueToLovelace balance of
@@ -396,14 +418,14 @@ balanceTransactionBody
       Nothing -> balancingError $ Left $ C.TxBodyErrorNonAdaAssetsUnbalanced balance
 
     let finalBodyContent =
-          txbodycontent1
-            & set L.txFee t_fee
+          txbodycontent1WithCollateral
+            & set L.txFee txFee
             & addChangeOutput changeOutputBalance
 
     finalTxBody <- balancingError . first C.TxBodyError $ C.createTransactionBody C.shelleyBasedEra finalBodyContent
     balances <- maybe (throwing_ _ComputeBalanceChangeError) pure (balanceChanges csiUtxo finalBodyContent)
 
-    let finalBody = C.BalancedTxBody finalBodyContent finalTxBody changeOutputBalance t_fee
+    let finalBody = C.BalancedTxBody finalBodyContent finalTxBody changeOutputBalance txFee
     return (finalBody, balances)
 
 checkMinUTxOValue
@@ -627,12 +649,22 @@ addOwnInput builder allUtxos =
              in pure $ builder <> execBuildTx (spendPublicKeyOutput (fst $ head availableUTxOs))
         | otherwise -> throwing_ _NoWalletUTxOs
 
-{- | Add a collateral input. Throws a 'NoAdaOnlyUTxOsForCollateral' error if a collateral input is required,
-  but no suitable input is provided in the wallet UTxO set.
+{- | Add a collateral input. Since the Babbage era, return collateral is supported, so we can use
+  UTXOs containing native assets as collateral - the native assets will be returned via the
+  return collateral field. Throws a 'NoWalletUTxOs' error if a collateral input is required,
+  but no UTXOs are available in the wallet.
   Additionally returns the collateral UTxOs that were used.
 -}
-setCollateral :: forall era err m ctx a. (MonadError err m, C.IsAlonzoBasedEra era, AsCoinSelectionError err) => TxBuilder era -> UtxoSet ctx a -> m (TxBuilder era, UtxoSet ctx a)
-setCollateral builder (Utxos.onlyAda -> UtxoSet{_utxos}) =
+setCollateral
+  :: forall era err m ctx a
+   . ( MonadError err m
+     , C.IsAlonzoBasedEra era
+     , AsCoinSelectionError err
+     )
+  => TxBuilder era
+  -> UtxoSet ctx a
+  -> m (TxBuilder era, UtxoSet ctx a)
+setCollateral builder (UtxoSet _utxos) =
   inAlonzo @era $
     let body = BuildTx.buildTx builder
         noScripts = not (runsScripts body)
@@ -646,7 +678,10 @@ setCollateral builder (Utxos.onlyAda -> UtxoSet{_utxos}) =
                 let collatUTxOs = Map.restrictKeys _utxos (Set.fromList collateral)
                 pure (builder, UtxoSet{_utxos = collatUTxOs})
               else do
-                -- select the output with the largest amount of Ada
+                -- Select the output with the largest amount of Ada. Since the
+                -- Babbage era, we can use UTxOs with native assets as
+                -- collateral because return collateral will return the native
+                -- assets to some change address.
                 let outputWithLargestAda =
                       listToMaybe
                         $ List.sortOn
@@ -658,7 +693,7 @@ setCollateral builder (Utxos.onlyAda -> UtxoSet{_utxos}) =
                           )
                         $ Map.toList _utxos
                 case outputWithLargestAda of
-                  Nothing -> throwing_ _NoAdaOnlyUTxOsForCollateral
+                  Nothing -> throwing_ _NoWalletUTxOs
                   Just kp@(k, _) -> pure (builder <> execBuildTx (addCollateral k), UtxoSet{_utxos = Map.fromList [kp]})
 
 -- | Whether the transaction runs any plutus scripts
@@ -672,7 +707,7 @@ runsScripts body =
      in not (null scriptIns && Map.null minting && null withdrawals && null certificates)
 
 {- | Add inputs to ensure that the balance is strictly positive. After calling @balancePositive@
-* The amount of Ada provided by the transaction's inputs minus (the amount of Ada produced by the transaction's outputs plus the change output) is greater than zero
+* The amount of Ada provided by the transaction's inputs minus the amount of Ada produced by the transaction's outputs plus the change output is greater than zero
 * For all native tokens @t@, the amount of @t@ provided by the transaction's inputs minus (the amount of @t@ produced by the transaction's outputs plus the change output plus the delta of @t@ minted / burned) is equal to zero
 -}
 balancePositive
