@@ -2,13 +2,14 @@ name: Build haddocks and publish to github pages
 on:
   push:
     branches: [ "main" ]
-    tags: [ "*.*.*" ]
   pull_request:
 
 jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
+    env:
+      NIX_CONFIG: accept-flake-config = true
     steps:
       # install deps.
       - name: install dependencies
@@ -19,28 +20,32 @@ jobs:
       - name: Install system dependencies
         uses: input-output-hk/actions/base@latest
 
-
-      - uses: haskell-actions/setup@v2
-        id: cabal-setup
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          ghc-version: '9.6.6'
-          cabal-version: '3.10.3.0'
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            accept-flake-config = true
 
       - uses: actions/checkout@v4
 
       - name: Cache .cabal
         uses: actions/cache@v3
         with:
-          path: ${{ steps.cabal-setup.outputs.cabal-store }}
+          path: ~/.cabal/store
           key: cabal-haddocks-${{ hashFiles('cabal.project') }}
+
+      - name: Prepare dependencies and build environment
+        run: |
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal update'
 
       - name: Build haddocks
         run: |
-          cabal update
-          cabal haddock-project --local --output=haddocks
+          nix develop .#ghc966-nohoogle -c bash -lc 'cabal haddock-project --output=haddocks'
 
       - name: Upload GH pages artifact
         uses: actions/upload-pages-artifact@v3.0.1
+        id: deployment
         with:
           path: haddocks
 
@@ -59,12 +64,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
-    # Deploy only from the main branch
-    if: ${{ github.ref == 'main' }}
+    # Deploy only from the main branch on push events
+    if: ${{ github.ref == 'refs/heads/speedup-workflow' }}
 
     # Specify runner + deployment step
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2 # or the latest "vX.X.X" version tag for this action
+        uses: actions/deploy-pages@v4
