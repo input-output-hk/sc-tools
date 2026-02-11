@@ -5,7 +5,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Devnet.Test.LatestEraTransitionSpec (
@@ -34,7 +33,6 @@ import Convex.Utils.String (unsafeAssetName)
 import Convex.Wallet.MockWallet qualified as Wallet
 import Devnet.Test.LatestEraTransitionSpec.PV2 qualified as LatestEraTransitionSpec.PV2
 import Devnet.Test.LatestEraTransitionSpec.PV3 qualified as LatestEraTransitionSpec.PV3
-import PlutusTx.Builtins qualified as BI
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase)
 
@@ -59,35 +57,35 @@ pv9NodeParams =
 
 usingReadBitInPlutusV2AndProtVer9ShouldFailSpec :: IO ()
 usingReadBitInPlutusV2AndProtVer9ShouldFailSpec = do
-  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV2.readBitTestMintingPolicyScriptPV2 $ BI.mkB "0xF4")) (const $ pure ())
+  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV2.readBitTestMintingPolicyScriptPV2 $ "\xF4")) (const $ pure ())
 
 usingWriteBitInPlutusV2AndProtVer9ShouldFailSpec :: IO ()
 usingWriteBitInPlutusV2AndProtVer9ShouldFailSpec = do
-  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV2.writeBitTestMintingPolicyScriptPV2 $ BI.mkB "0xFF")) (const $ pure ())
+  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV2.writeBitTestMintingPolicyScriptPV2 $ "\xFF")) (const $ pure ())
 
 usingReadBitInPlutusV3AndProtVer9ShouldFailSpec :: IO ()
 usingReadBitInPlutusV3AndProtVer9ShouldFailSpec = do
-  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV3.readBitTestMintingPolicyScriptPV3 $ BI.mkB "0xF4")) (const $ pure ())
+  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV3.readBitTestMintingPolicyScriptPV3 $ "\xF4")) (const $ pure ())
 
 usingWriteBitInPlutusV3AndProtVer9ShouldFailSpec :: IO ()
 usingWriteBitInPlutusV3AndProtVer9ShouldFailSpec = do
-  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV3.writeBitTestMintingPolicyScriptPV3 $ BI.mkB "0xFF")) (const $ pure ())
+  mockchainFailsWith pv9NodeParams (mintTokenScriptTest (LatestEraTransitionSpec.PV3.writeBitTestMintingPolicyScriptPV3 $ "\xFF")) (const $ pure ())
 
 usingReadBitInPlutusV2AndLatestProtVerShouldPassSpec :: IO ()
 usingReadBitInPlutusV2AndLatestProtVerShouldPassSpec = do
-  mockchainFails (mintTokenScriptTest (LatestEraTransitionSpec.PV2.readBitTestMintingPolicyScriptPV2 $ BI.mkB "0xF4")) (const $ pure ())
+  mockchainFails (mintTokenScriptTest (LatestEraTransitionSpec.PV2.readBitTestMintingPolicyScriptPV2 $ "\xF4")) (const $ pure ())
 
 usingWriteBitInPlutusV2AndLatestProtVerShouldPassSpec :: IO ()
 usingWriteBitInPlutusV2AndLatestProtVerShouldPassSpec = do
-  mockchainFails (mintTokenScriptTest (LatestEraTransitionSpec.PV2.writeBitTestMintingPolicyScriptPV2 $ BI.mkB "0xFF")) (const $ pure ())
+  mockchainFails (mintTokenScriptTest (LatestEraTransitionSpec.PV2.writeBitTestMintingPolicyScriptPV2 $ "\xFF")) (const $ pure ())
 
 usingReadBitInPlutusV3AndLatestProtVerShouldPassSpec :: IO ()
 usingReadBitInPlutusV3AndLatestProtVerShouldPassSpec = do
-  mockchainSucceeds (mintTokenScriptTest (LatestEraTransitionSpec.PV3.readBitTestMintingPolicyScriptPV3 $ BI.mkB "0xF4"))
+  mockchainSucceeds (mintTokenScriptTest (LatestEraTransitionSpec.PV3.readBitTestMintingPolicyScriptPV3 $ "\xF4"))
 
 usingWriteBitInPlutusV3AndLatestProtVerShouldPassSpec :: IO ()
 usingWriteBitInPlutusV3AndLatestProtVerShouldPassSpec = do
-  mockchainSucceeds (mintTokenScriptTest (LatestEraTransitionSpec.PV3.writeBitTestMintingPolicyScriptPV3 $ BI.mkB "0xFF"))
+  mockchainSucceeds (mintTokenScriptTest (LatestEraTransitionSpec.PV3.writeBitTestMintingPolicyScriptPV3 $ "\xFF"))
 
 mintTokenScriptTest
   :: ( MonadMockchain era m

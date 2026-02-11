@@ -1,49 +1,49 @@
 { inputs, pkgs, lib }:
 
 let
-  cabalProject = pkgs.haskell-nix.cabalProject' (
-    
-    { config, pkgs, ... }:
+  # Common project configuration shared across GHC versions
+  commonConfig = {
+    name = "sc-tools";
 
-    {
-      name = "sc-tools";
+    src = lib.cleanSource ../.;
 
-      compiler-nix-name = lib.mkDefault "ghc966";
+    inputMap = { "https://chap.intersectmbo.org/" = inputs.CHaP; };
 
-      src = lib.cleanSource ../.;
+    cabalProjectLocal = ''
+      package *
+        ghc-options=-Werror
+    '';
 
-      flake.variants = {
-        ghc966 = {}; # Alias for the default variant
-        #ghc984.compiler-nix-name = "ghc984";
-        #ghc9102.compiler-nix-name = "ghc9102";
-        #ghc9122.compiler-nix-name = "ghc9122";
+    modules = [{
+      packages = {
+        convex-base.ghcOptions = [ "-Werror" ];
+        convex-blockfrost.ghcOptions = [ "-Werror" ];
+        convex-coin-selection.ghcOptions = [ "-Werror" ];
+        convex-devnet.ghcOptions = [ "-Werror" ];
+        convex-maestro.ghcOptions = [ "-Werror" ];
+        convex-mockchain.ghcOptions = [ "-Werror" ];
+        convex-node-client.ghcOptions = [ "-Werror" ];
+        convex-optics.ghcOptions = [ "-Werror" ];
+        convex-tx-mod.ghcOptions = [ "-Werror" ];
+        convex-wallet.ghcOptions = [ "-Werror" ];
       };
+    }];
+  };
 
-      inputMap = { "https://chap.intersectmbo.org/" = inputs.CHaP; };
-
-      cabalProjectLocal = ''
-        package *
-          ghc-options=-Werror
-      '';
-      modules = [{
-        packages = {
-          convex-base.ghcOptions = [ "-Werror" ];
-          convex-blockfrost.ghcOptions = [ "-Werror" ];
-          convex-coin-selection.ghcOptions = [ "-Werror" ];
-          convex-devnet.ghcOptions = [ "-Werror" ];
-          convex-maestro.ghcOptions = [ "-Werror" ];
-          convex-mockchain.ghcOptions = [ "-Werror" ];
-          convex-node-client.ghcOptions = [ "-Werror" ];
-          convex-optics.ghcOptions = [ "-Werror" ];
-          convex-tx-mod.ghcOptions = [ "-Werror" ];
-          convex-wallet.ghcOptions = [ "-Werror" ];
-        };
-      }      
-      ];
-    }
-  );
+  # Create a project for a specific GHC version (lazy - only evaluated when accessed)
+  mkProject = compiler-nix-name:
+    pkgs.haskell-nix.cabalProject' ({ config, pkgs, ... }:
+      commonConfig // {
+        inherit compiler-nix-name;
+      }
+    );
 
 in
 
-cabalProject
-
+{
+  # Each project is created lazily - only evaluated when accessed
+  ghc966 = mkProject "ghc966";
+  ghc9103 = mkProject "ghc9103";
+  #ghc984 = mkProject "ghc984";
+  #ghc9122 = mkProject "ghc9122";
+}

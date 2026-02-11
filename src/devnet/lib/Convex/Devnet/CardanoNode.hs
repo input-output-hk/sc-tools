@@ -37,7 +37,6 @@ import Cardano.Api (
  )
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental.Certificate qualified as Ex
-import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Conway.TxCert qualified as L
 import Cardano.Slotting.Slot (withOriginToMaybe)
@@ -618,16 +617,16 @@ withCardanoStakePoolNodeDevnetConfig tracer stateDirectory wallet params nodeCon
 
   let
     stakeCertTx = execBuildTx $ do
-      addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
+      addCertificate stakeCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
     poolCertTx = execBuildTx $ do
       let pledge = spnPledge params
       when (pledge > 0) $
         payToAddress paymentAddress (C.lovelaceToValue pledge)
-      addCertificate poolCert Ex.AnyKeyWitnessPlaceholder
+      addCertificate poolCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
     delegCertTx = execBuildTx $ do
-      addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
+      addCertificate delegationCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
   txSubmissionResults <-
     runExceptT $ do

@@ -1,46 +1,27 @@
-{ inputs, pkgs, lib, project, utils, ghc, system, withHoogle ? true }:
+{ inputs, pkgs, lib, projects, utils, ghc, system, withHoogle ? true }:
 
 let
 
   cardano-node = inputs.cardano-node.packages."${system}".cardano-node;
   cardano-cli  = inputs.cardano-cli.legacyPackages."${system}".cardano-cli;
 
-  allTools = {
-    "ghc966".cabal                    = project.projectVariants.ghc966.tool "cabal" "latest";
-    "ghc966".cabal-fmt                = project.projectVariants.ghc966.tool "cabal-fmt" "latest";
-    "ghc966".haskell-language-server  = project.projectVariants.ghc966.tool "haskell-language-server" "latest";
-    "ghc966".stylish-haskell          = project.projectVariants.ghc966.tool "stylish-haskell" "latest";
-    "ghc966".fourmolu                 = project.projectVariants.ghc966.tool "fourmolu" "latest";
-    "ghc966".hlint                    = project.projectVariants.ghc966.tool "hlint" "latest";
+  # Get the project for this specific GHC version (lazy evaluation)
+  project = projects.${ghc};
 
-    "ghc984".cabal                    = project.projectVariants.ghc984.tool "cabal" "latest";
-    "ghc984".cabal-fmt                = project.projectVariants.ghc984.tool "cabal-fmt" "latest";
-    "ghc984".haskell-language-server  = project.projectVariants.ghc984.tool "haskell-language-server" "latest";
-    "ghc984".stylish-haskell          = project.projectVariants.ghc984.tool "stylish-haskell" "latest";
-    "ghc984".fourmolu                 = project.projectVariants.ghc984.tool "fourmolu" "latest";
-    "ghc984".hlint                    = project.projectVariants.ghc984.tool "hlint" "latest";
-
-    "ghc9102".cabal                   = project.projectVariants.ghc9102.tool "cabal" "latest";
-    "ghc9102".cabal-fmt               = project.projectVariants.ghc966.tool  "cabal-fmt" "latest"; # cabal-fmt not buildable with ghc9102
-    "ghc9102".haskell-language-server = project.projectVariants.ghc9102.tool "haskell-language-server" "latest";
-    "ghc9102".stylish-haskell         = project.projectVariants.ghc9102.tool "stylish-haskell" "latest";
-    "ghc9102".fourmolu                = project.projectVariants.ghc9102.tool "fourmolu" "latest";
-    "ghc9102".hlint                   = project.projectVariants.ghc9102.tool "hlint" "latest";
-
-    "ghc9122".cabal                   = project.projectVariants.ghc9122.tool "cabal" "latest";
-    "ghc9122".cabal-fmt               = project.projectVariants.ghc966.tool  "cabal-fmt" "latest"; # cabal-fmt not buildable with ghc9122
-    "ghc9122".haskell-language-server = project.projectVariants.ghc9122.tool "haskell-language-server" "latest";
-    "ghc9122".stylish-haskell         = project.projectVariants.ghc9122.tool "stylish-haskell" "latest";
-    "ghc9122".fourmolu                = project.projectVariants.ghc9122.tool "fourmolu" "latest";
-    "ghc9122".hlint                   = project.projectVariants.ghc9122.tool "hlint" "latest";
+  # Tools are looked up from the specific GHC project
+  tools = {
+    cabal                   = project.tool "cabal" "latest";
+    cabal-fmt               = projects.ghc966.tool "cabal-fmt" "latest"; # cabal-fmt only buildable with ghc966
+    haskell-language-server = project.tool "haskell-language-server" "latest";
+    stylish-haskell         = project.tool "stylish-haskell" "latest";
+    fourmolu                = project.tool "fourmolu" "latest";
+    hlint                   = project.tool "hlint" "latest";
   };
-
-  tools = allTools.${ghc};
 
   preCommitCheck = inputs.pre-commit-hooks.lib.${pkgs.system}.run {
 
     src = lib.cleanSources ../.;
-    
+
     hooks = {
       nixpkgs-fmt = {
         enable = false;
@@ -58,7 +39,6 @@ let
       fourmolu = {
         enable = true;
         package = tools.fourmolu;
-        args = [ ];
       };
       hlint = {
         enable = false;
@@ -103,7 +83,7 @@ let
   ];
 
   shell = project.shellFor {
-    name = "sc-tools-${project.args.compiler-nix-name}";
+    name = "sc-tools-${ghc}";
 
     buildInputs = lib.concatLists [
       commonPkgs

@@ -42,7 +42,7 @@ import Cardano.Api (
   chainTipToChainPoint,
   envSecurityParam,
  )
-import Cardano.Api qualified as CAPI
+import Cardano.Api qualified as C
 import Cardano.Slotting.Slot (WithOrigin (At))
 import Convex.NodeClient.ChainTip (
   JSONBlockNo (..),
@@ -87,7 +87,7 @@ data LedgerStateArgs mode where
 -- | Whether we have the current ledger state for the client folding function
 data LedgerStateUpdate mode where
   NoLedgerStateUpdate :: LedgerStateUpdate 'NoLedgerState
-  LedgerStateUpdate :: LedgerState -> [CAPI.LedgerEvent] -> LedgerStateUpdate 'FullLedgerState
+  LedgerStateUpdate :: LedgerState -> [C.LedgerEvent] -> LedgerStateUpdate 'FullLedgerState
 
 -- | A history of the last @k@ states
 type History mode a = Seq (SlotNo, LedgerStateUpdate mode, a)
@@ -202,7 +202,7 @@ foldClient' initialState ledgerStateArgs env applyRollback accumulate = Pipeline
     clientNextN n history =
       ClientStNext
         { recvMsgRollForward = \newBlock@(BlockInMode _ bim) serverChainTip -> do
-            let bh@(BlockHeader slotNo _blockHash currBlockNo) = CAPI.getBlockHeader bim
+            let bh@(BlockHeader slotNo _blockHash currBlockNo) = C.getBlockHeader bim
                 newClientTip = At currBlockNo
                 newServerTip = fromChainTip serverChainTip
                 cu =
@@ -296,10 +296,11 @@ pushHistoryState
   -> a
   -- ^ New item to add to the history
   -> (History mode a, History mode a)
-  -- ^ ( The new history with the new item appended
-  --   , Any exisiting items that are now past the security parameter
-  --      and hence can no longer be rolled back.
-  --   )
+  {- ^ ( The new history with the new item appended
+  , Any exisiting items that are now past the security parameter
+     and hence can no longer be rolled back.
+  )
+  -}
 pushHistoryState env hist ix ledgerStateUpdate st =
   Seq.splitAt
     (fromIntegral $ envSecurityParam env + 1)

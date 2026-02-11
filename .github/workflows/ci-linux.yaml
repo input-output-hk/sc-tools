@@ -45,15 +45,28 @@ jobs:
           path: ~/.cabal/store
           key: cabal-${{ hashFiles('cabal.project') }}
 
-      - name: Prepare dependencies and build environment
+      - name: Prepare dependencies and build environment for GHC 9.6
         run: |
           nix develop .#ghc966-nohoogle -c bash -lc 'ghc --version'
           nix develop .#ghc966-nohoogle -c bash -lc 'cabal update'
 
-      - name: Build
+      - name: Build project with GHC 9.6
         run: |
           nix develop .#ghc966-nohoogle -c bash -lc 'cabal build --ghc-options=-Werror -j all'
 
-      - name: Test
+      - name: Test project with GHC 9.6
         run: |
           nix develop .#ghc966-nohoogle -c bash -lc 'cabal test --ghc-options=-Werror all'
+
+      - name: Prepare dependencies and build environment for GHC 9.10
+        run: |
+          nix develop .#ghc9103-nohoogle -c bash -lc 'ghc --version'
+          nix develop .#ghc9103-nohoogle -c bash -lc 'cabal update'
+
+      - name: Build project with GHC 9.10
+        run: |
+          nix develop .#ghc9103-nohoogle -c bash -lc 'cabal build --ghc-options=-Werror -j all'
+
+      - name: Test project with GHC 9.10
+        run: |
+          nix develop .#ghc9103-nohoogle -c bash -lc 'cabal test --ghc-options=-Werror all'
