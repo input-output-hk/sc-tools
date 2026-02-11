@@ -1,4 +1,5 @@
-{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,15 +10,19 @@
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental.Certificate qualified as Ex
 import Cardano.Api.Experimental.Era qualified as Ex
-import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.BaseTypes (Mismatch (..))
 import Cardano.Ledger.Conway.PParams qualified as Ledger
 import Cardano.Ledger.Conway.Rules qualified as Rules
+import Cardano.Ledger.Keys qualified as Keys
 import Cardano.Ledger.Shelley.API (ApplyTxError (..))
 import Control.Lens (view, (&), (.~), (^.), _3, _4)
+#if __GLASGOW_HASKELL__ < 910
 import Control.Monad (replicateM, void, when)
+#else
+import Control.Monad (void, when)
+#endif
 import Control.Monad.Except (MonadError, runExceptT)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State.Strict (execStateT, modify)
@@ -115,6 +120,17 @@ import Test.Tasty.QuickCheck (
  )
 import Test.Tasty.QuickCheck qualified as QC
 
+#if __GLASGOW_HASKELL__ < 910
+matchingIndexTests :: [TestTree]
+matchingIndexTests =
+  [ testCase "spend an output locked by the matching index script" (mockchainSucceeds $ failOnError matchingIndex)
+  , testCase "mint a token with the matching index minting policy" (mockchainSucceeds $ failOnError matchingIndexMP)
+  ]
+#else
+matchingIndexTests :: [TestTree]
+matchingIndexTests = []
+#endif
+
 main :: IO ()
 main = defaultMain tests
 
@@ -131,19 +147,18 @@ tests =
         ]
     , testGroup
         "scripts"
-        [ testCase "paying to a plutus script" (mockchainSucceeds $ failOnError payToPlutusScript)
-        , testCase "spending a plutus script output" (mockchainSucceeds $ failOnError (payToPlutusScript >>= spendPlutusScript))
-        , testCase "spending a plutus script (V2) output" (mockchainSucceeds $ failOnError (payToPlutusV2Script >>= spendPlutusV2Script))
-        , testCase "creating a reference script output" (mockchainSucceeds $ failOnError $ putReferenceScript Wallet.w1)
-        , testCase "using a reference script" (mockchainSucceeds $ failOnError (payToPlutusV2Script >>= spendPlutusScriptReference))
-        , testCase "minting a token" (mockchainSucceeds $ failOnError mintingPlutus)
-        , testCase "making payments with tokens" (mockchainSucceeds $ failOnError (mintingPlutus >>= spendTokens))
-        , testCase "making payments with tokens (2)" (mockchainSucceeds $ failOnError (mintingPlutus >>= spendTokens2))
-        , testCase "spending a singleton output" (mockchainSucceeds $ failOnError (mintingPlutus >>= spendSingletonOutput))
-        , testCase "spend an output locked by the matching index script" (mockchainSucceeds $ failOnError matchingIndex)
-        , testCase "mint a token with the matching index minting policy" (mockchainSucceeds $ failOnError matchingIndexMP)
-        , testCase "collateral selection with mixed-asset UTxOs" collateralWithMixedUtxos
-        ]
+        $ [ testCase "paying to a plutus script" (mockchainSucceeds $ failOnError payToPlutusScript)
+          , testCase "spending a plutus script output" (mockchainSucceeds $ failOnError (payToPlutusScript >>= spendPlutusScript))
+          , testCase "spending a plutus script (V2) output" (mockchainSucceeds $ failOnError (payToPlutusV2Script >>= spendPlutusV2Script))
+          , testCase "creating a reference script output" (mockchainSucceeds $ failOnError $ putReferenceScript Wallet.w1)
+          , testCase "using a reference script" (mockchainSucceeds $ failOnError (payToPlutusV2Script >>= spendPlutusScriptReference))
+          , testCase "minting a token" (mockchainSucceeds $ failOnError mintingPlutus)
+          , testCase "making payments with tokens" (mockchainSucceeds $ failOnError (mintingPlutus >>= spendTokens))
+          , testCase "making payments with tokens (2)" (mockchainSucceeds $ failOnError (mintingPlutus >>= spendTokens2))
+          , testCase "spending a singleton output" (mockchainSucceeds $ failOnError (mintingPlutus >>= spendSingletonOutput))
+          , testCase "collateral selection with mixed-asset UTxOs" collateralWithMixedUtxos
+          ]
+          <> matchingIndexTests
     , testGroup
         "mockchain"
         [ testCase "queryDatumFromHash" (mockchainSucceeds $ failOnError checkResolveDatumHash)
@@ -453,6 +468,7 @@ largeTransactionTest = do
     (Right{}, view failedTransactions -> []) -> pure ()
     (_, length . view failedTransactions -> numFailed) -> fail $ "Expected success with 0 failed transactions, found " <> show numFailed
 
+#if __GLASGOW_HASKELL__ < 910
 matchingIndex :: forall era m. (MonadMockchain era m, MonadError (BalanceTxError era) m, MonadFail m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m ()
 matchingIndex = inBabbage @era $ do
   let txBody = execBuildTx (BuildTx.payToScriptDatumHash Defaults.networkId (plutusScript Scripts.matchingIndexValidatorScript) () C.NoStakeAddress (C.lovelaceToValue 10_000_000))
@@ -463,6 +479,7 @@ matchingIndex = inBabbage @era $ do
 
   -- Spend the outputs in a single transaction
   void (tryBalanceAndSubmit mempty Wallet.w1 (execBuildTx $ traverse_ Scripts.spendMatchingIndex inputs) TrailingChange [])
+#endif
 
 scriptStakingCredential :: C.StakeCredential
 scriptStakingCredential = C.StakeCredentialByScript $ C.hashScript (C.PlutusScript C.PlutusScriptV2 Scripts.v2StakingScript)
@@ -531,12 +548,14 @@ withdrawZeroTrick = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
     BuildTx.addStakeScriptWitness cert scriptStakingCredential Scripts.v2StakingScript ()
   void $ tryBalanceAndSubmit mempty Wallet.w1 unregisterTx TrailingChange []
 
+#if __GLASGOW_HASKELL__ < 910
 matchingIndexMP :: forall m. (MonadMockchain C.ConwayEra m, MonadError (BalanceTxError C.ConwayEra) m, MonadFail m) => m ()
 matchingIndexMP = do
   let sh = C.hashScript (C.PlutusScript C.PlutusScriptV3 Scripts.matchingIndexMPScript)
       policyId = C.PolicyId sh
       runTx deadbeef = Scripts.mintMatchingIndex policyId deadbeef 100
   void $ tryBalanceAndSubmit mempty Wallet.w1 (execBuildTx $ traverse_ runTx (unsafeAssetName <$> ["deadbeefaa", "deadbeefbb", "deadbeefcc"])) TrailingChange []
+#endif
 
 queryStakeAddressesTest :: forall m. (MonadIO m, MonadMockchain C.ConwayEra m, MonadError (BalanceTxError C.ConwayEra) m, MonadFail m) => m ()
 queryStakeAddressesTest = do
@@ -561,10 +580,10 @@ queryStakeAddressesTest = do
         (Ledger.DelegStake $ C.unStakePoolKeyHash poolId)
 
     stakeCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
+      BuildTx.addCertificate stakeCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
     delegCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
+      BuildTx.addCertificate delegationCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
   -- activate stake
   void $ tryBalanceAndSubmit mempty Wallet.w2 stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
@@ -586,6 +605,9 @@ queryStakeVoteDelegateesTest = do
   drepKey <- C.generateSigningKey C.AsDRepKey
   let drepKeyHash = C.unDRepKeyHash $ C.verificationKeyHash $ C.getVerificationKey drepKey
       drepCred = Ledger.KeyHashObj drepKeyHash
+      -- Convert DRep key hash to stake key hash for witness info
+      drepAsStakeKeyHash = Keys.coerceKeyRole drepKeyHash
+      drepAsStakeCred = C.StakeCredentialByKey (C.StakeKeyHash drepAsStakeKeyHash)
 
   pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
   let
@@ -597,11 +619,12 @@ queryStakeVoteDelegateesTest = do
       Ex.makeStakeAddressDelegationCertificate stakeCred (Ledger.DelegVote $ Ledger.DRepKeyHash drepKeyHash)
 
     stakeCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
+      BuildTx.addCertificate stakeCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
     drepCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate drepCert Ex.AnyKeyWitnessPlaceholder
+      -- Use the coerced stake credential so the transaction builder knows a key witness is needed
+      BuildTx.addCertificate drepCert (Just (drepAsStakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
     delegCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
+      BuildTx.addCertificate delegationCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
   -- activate stake
   void $ tryBalanceAndSubmit mempty Wallet.w2 stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
@@ -635,7 +658,7 @@ stakeKeyWithdrawalTest = do
             BuildTx.mkConwayStakeCredentialRegistrationAndDelegationCertificate
               stakeCred
               (Ledger.DelegVote Ledger.DRepAlwaysAbstain)
-          BuildTx.addCertificate cert Ex.AnyKeyWitnessPlaceholder
+          BuildTx.addCertificate cert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
   -- activate stake and delegate to drep with a single certificate
   void $ tryBalanceAndSubmit mempty Wallet.w2 delegDrepCertTx TrailingChange [C.WitnessStakeKey stakeKey]

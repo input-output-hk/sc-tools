@@ -80,9 +80,14 @@ test-suite convex-coin-selection-test
     -fno-omit-interface-pragmas -fno-specialise -Wno-unused-packages
 
   main-is:        Spec.hs
-  other-modules:
-    Scripts
-    Scripts.MatchingIndex
+  other-modules:  Scripts
+
+  -- As of 2026-02-11, plutus-tx-plugin only works with GHC 9.6.6 at the moment
+  if impl(ghc <9.10)
+    other-modules: Scripts.MatchingIndex
+    build-depends:
+      , plutus-tx
+      , plutus-tx-plugin
 
   build-depends:
     , base                                         >=4.14.0
@@ -99,10 +104,9 @@ test-suite convex-coin-selection-test
     , convex-wallet
     , lens
     , mtl
+    , plutus-core
     , plutus-ledger-api
     , plutus-ledger-api:plutus-ledger-api-testlib
-    , plutus-tx
-    , plutus-tx-plugin
     , QuickCheck
     , tasty
     , tasty-hunit
