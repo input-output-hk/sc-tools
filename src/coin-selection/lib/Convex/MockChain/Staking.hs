@@ -9,7 +9,6 @@ import Cardano.Api qualified as C
 import Cardano.Api.Compatible.Certificate qualified as Cert
 import Cardano.Api.Experimental.Certificate qualified as Ex
 import Cardano.Api.Experimental.Era qualified as Ex
-import Cardano.Api.Experimental.Tx qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Core qualified as Ledger
 import Control.Lens ((^.))
@@ -84,13 +83,13 @@ registerPool wallet = C.conwayEraOnwardsConstraints @era C.conwayBasedEra $ do
       Ex.makeStakePoolRegistrationCertificate (C.toShelleyPoolParams stakePoolParams)
 
     stakeCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate stakeCert Ex.AnyKeyWitnessPlaceholder
+      BuildTx.addCertificate stakeCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
     poolCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate poolCert Ex.AnyKeyWitnessPlaceholder
+      BuildTx.addCertificate poolCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
     delegCertTx = BuildTx.execBuildTx $ do
-      BuildTx.addCertificate delegationCert Ex.AnyKeyWitnessPlaceholder
+      BuildTx.addCertificate delegationCert (Just (stakeCred, C.KeyWitness C.KeyWitnessForStakeAddr))
 
   void $ tryBalanceAndSubmit mempty wallet stakeCertTx TrailingChange [C.WitnessStakeKey stakeKey]
   void $ tryBalanceAndSubmit mempty wallet poolCertTx TrailingChange [C.WitnessStakeKey stakeKey, C.WitnessStakePoolKey stakePoolKey]

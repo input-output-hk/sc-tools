@@ -1,56 +1,88 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:defer-errors #-}
-{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:preserve-logging #-}
-{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:target-version=1.0.0 #-}
 
+-- | PV2 test scripts constructed directly with UPLC (no PlutusTx.compile needed)
 module Devnet.Test.LatestEraTransitionSpec.PV2 (
   readBitTestMintingPolicyScriptPV2,
   writeBitTestMintingPolicyScriptPV2,
 ) where
 
 import Cardano.Api qualified as C
-import Convex.PlutusTx (compiledCodeToScript)
-import PlutusCore.Version qualified as Version
-import PlutusTx (CompiledCode)
-import PlutusTx qualified
-import PlutusTx.Builtins.Internal qualified as BI
-import PlutusTx.Plugin ()
-import PlutusTx.Prelude qualified as PlutusTx
+import Data.ByteString (ByteString)
+import PlutusCore qualified as PLC
+import PlutusCore.MkPlc qualified as PLC
+import PlutusCore.Version qualified as PLC
+import PlutusLedgerApi.Common (serialiseUPLC)
+import UntypedPlutusCore qualified as UPLC
 
--- PlutusTx.Plugin() is a "fake" import to prevent -Werror complaining about the plutustx plugin build-depend in .cabal.
-
-{-# INLINEABLE readBitTestMintingPolicy #-}
-readBitTestMintingPolicy :: PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinUnit
-readBitTestMintingPolicy d _ _ =
-  if PlutusTx.readBit (BI.unsafeDataAsB d) 2 then BI.unitval else PlutusTx.error ()
-
-readBitTestMintingPolicyScriptPV2 :: PlutusTx.BuiltinData -> C.PlutusScript C.PlutusScriptV2
-readBitTestMintingPolicyScriptPV2 = compiledCodeToScript . readBitTestMintingPolicyCompiled
+{- | A V2 minting policy that reads bit 2 from the input bytestring.
+Returns unit if the bit is set, errors otherwise.
+Script structure: \d -> \r -> \c -> ifThenElse (readBit (unBData d) 2) () error
+-}
+readBitTestMintingPolicyScriptPV2 :: ByteString -> C.PlutusScript C.PlutusScriptV2
+readBitTestMintingPolicyScriptPV2 inputBs =
+  C.PlutusScriptSerialised $ serialiseUPLC $ UPLC.Program () PLC.plcVersion100 body
  where
-  readBitTestMintingPolicyCompiled :: PlutusTx.BuiltinData -> CompiledCode (PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinUnit)
-  readBitTestMintingPolicyCompiled str =
-    $$(PlutusTx.compile [||\str' r c -> readBitTestMintingPolicy str' r c||])
-      `PlutusTx.unsafeApplyCode` PlutusTx.liftCode Version.plcVersion100 str
+  -- \d -> \r -> \c -> ifThenElse (readBit (unBData d) 2) () error
+  body =
+    -- Apply the input bytestring as the first argument
+    UPLC.Apply
+      ()
+      script
+      (PLC.mkConstant () inputBs)
 
-{-# INLINEABLE writeBitTestMintingPolicy #-}
-writeBitTestMintingPolicy :: PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinUnit
-writeBitTestMintingPolicy d _ _ =
-  let !_ = PlutusTx.writeBits (BI.unsafeDataAsB d) [0] False in BI.unitval
+  -- \d -> \r -> \c -> ...
+  script =
+    UPLC.LamAbs () (UPLC.DeBruijn 0) $ -- \d
+      UPLC.LamAbs () (UPLC.DeBruijn 0) $ -- \r (ignored)
+        UPLC.LamAbs () (UPLC.DeBruijn 0) $ -- \c (ignored)
+        -- ifThenElse (readBit d 2) () error
+        -- d is at de Bruijn index 3 (we're 3 lambdas deep)
+          UPLC.Force
+            ()
+            ( PLC.mkIterAppNoAnn
+                (UPLC.Force () (UPLC.Builtin () PLC.IfThenElse)) -- Force to instantiate type variable
+                [ -- condition: readBit d 2
+                  PLC.mkIterAppNoAnn
+                    (UPLC.Builtin () PLC.ReadBit)
+                    [ UPLC.Var () (UPLC.DeBruijn 3) -- d (the bytestring)
+                    , PLC.mkConstant () (2 :: Integer) -- bit index
+                    ]
+                , -- then: unit
+                  UPLC.Delay () (PLC.mkConstant () ())
+                , -- else: error
+                  UPLC.Delay () (UPLC.Error ())
+                ]
+            )
 
-writeBitTestMintingPolicyScriptPV2 :: PlutusTx.BuiltinData -> C.PlutusScript C.PlutusScriptV2
-writeBitTestMintingPolicyScriptPV2 = compiledCodeToScript . writeBitTestMintingPolicyCompiled
+{- | A V2 minting policy that writes bit 0 to False in the input bytestring.
+Always returns unit (the writeBits result is forced but discarded).
+Script structure: \d -> \r -> \c -> seq (writeBits d [0] [False]) ()
+-}
+writeBitTestMintingPolicyScriptPV2 :: ByteString -> C.PlutusScript C.PlutusScriptV2
+writeBitTestMintingPolicyScriptPV2 inputBs =
+  C.PlutusScriptSerialised $ serialiseUPLC $ UPLC.Program () PLC.plcVersion100 body
  where
-  writeBitTestMintingPolicyCompiled :: PlutusTx.BuiltinData -> CompiledCode (PlutusTx.BuiltinData -> PlutusTx.BuiltinData -> PlutusTx.BuiltinUnit)
-  writeBitTestMintingPolicyCompiled str =
-    $$(PlutusTx.compile [||\str' r c -> writeBitTestMintingPolicy str' r c||])
-      `PlutusTx.unsafeApplyCode` PlutusTx.liftCode Version.plcVersion100 str
+  body =
+    UPLC.Apply
+      ()
+      script
+      (PLC.mkConstant () inputBs)
+
+  -- \d -> \r -> \c -> ...
+  script =
+    UPLC.LamAbs () (UPLC.DeBruijn 0) $ -- \d
+      UPLC.LamAbs () (UPLC.DeBruijn 0) $ -- \r (ignored)
+        UPLC.LamAbs () (UPLC.DeBruijn 0) $ -- \c (ignored)
+        -- Force evaluation of writeBits, then return unit
+        -- Using: (\x -> ()) (writeBits d [0] [False])
+          UPLC.Apply
+            ()
+            (UPLC.LamAbs () (UPLC.DeBruijn 0) (PLC.mkConstant () ()))
+            ( PLC.mkIterAppNoAnn
+                (UPLC.Builtin () PLC.WriteBits)
+                [ UPLC.Var () (UPLC.DeBruijn 3) -- d (the bytestring)
+                , PLC.mkConstant () [0 :: Integer] -- indices to write
+                , PLC.mkConstant () False -- value to write at all indices
+                ]
+            )

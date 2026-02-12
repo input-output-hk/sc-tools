@@ -17,7 +17,7 @@ import Cardano.Api (
   ChainPoint (..),
   ChainTip (..),
  )
-import Cardano.Api qualified as CAPI
+import Cardano.Api qualified as C
 import Cardano.Slotting.Slot (WithOrigin (At))
 import Control.Monad (when)
 import Convex.NodeClient.Types (
@@ -62,7 +62,7 @@ progressClient = PipelinedLedgerStateClient $ CSP.ChainSyncClientPipelined $ do
     clientNextN n =
       ClientStNext
         { recvMsgRollForward = \(BlockInMode _era block) serverChainTip -> do
-            let BlockHeader _ _ currBlockNo@(BlockNo blockNo) = CAPI.getBlockHeader block
+            let BlockHeader _ _ currBlockNo@(BlockNo blockNo) = C.getBlockHeader block
                 newClientTip = At currBlockNo
                 newServerTip = fromChainTip serverChainTip
             when (blockNo `mod` 10_000 == 0) $ do
@@ -102,15 +102,15 @@ progressClient = PipelinedLedgerStateClient $ CSP.ChainSyncClientPipelined $ do
 
     printBlock :: Block era -> IO ()
     printBlock block =
-      let BlockHeader _ _ currBlockNo = CAPI.getBlockHeader block
-          transactions = CAPI.getBlockTxs block
+      let BlockHeader _ _ currBlockNo = C.getBlockHeader block
+          transactions = C.getBlockTxs block
        in putStrLn $ show currBlockNo ++ " transactions: " ++ show (length transactions)
 
     printTip :: ChainTip -> IO ()
     printTip = \case
       ChainTipAtGenesis -> putStrLn "server tip at genesis"
       ChainTip slot hash block -> do
-        let txt = CAPI.serialiseToRawBytesHexText hash
+        let txt = C.serialiseToRawBytesHexText hash
         putStrLn $ "server tip: " <> show slot <> "; " <> Text.unpack txt <> "; " <> show block
 
   return (clientIdle_RequestMoreN Origin Origin Zero)

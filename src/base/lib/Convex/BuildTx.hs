@@ -952,11 +952,16 @@ addWithdrawZeroPlutusV2Reference
 addWithdrawZeroPlutusV2Reference refTxIn script redeemer = addScriptWithdrawal script 0 $ buildRefScriptWitness refTxIn C.PlutusScriptV2 C.NoScriptDatumForStake redeemer
 
 {- | Add a certificate (stake delegation, stake pool registration, etc)
-to the transaction
+to the transaction.
 -}
-addCertificate :: forall era m. (MonadBuildTx era m, Ex.IsEra era) => Certificate (C.ShelleyLedgerEra era) -> Ex.AnyWitness (Ex.LedgerEra era) -> m ()
-addCertificate cert wit =
-  addBtx (set L.txCertificates (Ex.mkTxCertificates [(cert, wit)]))
+addCertificate
+  :: forall era m
+   . (MonadBuildTx era m, C.IsShelleyBasedEra era)
+  => Certificate (C.ShelleyLedgerEra era)
+  -> Maybe (C.StakeCredential, C.Witness C.WitCtxStake era)
+  -> m ()
+addCertificate cert witnessInfo =
+  addBtx (over (L.txCertificates . L._TxCertificates) (OMap.|> (cert, pure witnessInfo)))
 
 {- | Add a conway stake credential registration certificate without witness.
 This is only possible in the Conway era.
