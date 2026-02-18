@@ -7,48 +7,50 @@ let
 
   utils = import ./utils.nix { inherit pkgs lib; };
 
-  project = import ./project.nix { inherit inputs pkgs lib; };
+  # Each GHC version gets its own project - evaluated lazily
+  projects = import ./project.nix { inherit inputs pkgs lib; };
 
-  mkShell = { ghc, withHoogle ? true }: import ./shell.nix { inherit inputs pkgs lib project utils ghc system withHoogle; };
+  # Create shells using the projects attribute set
+  mkShell = { ghc, withHoogle ? true }:
+    import ./shell.nix { inherit inputs pkgs lib projects utils ghc system withHoogle; };
 
   packages = { };
 
   devShells = rec {
-    default = ghc966; 
-    ghc966 = mkShell { ghc = "ghc966"; }; 
-    ghc966-nohoogle = mkShell { ghc = "ghc966"; withHoogle = false; }; 
-    # ghc984 = mkShell { ghc = "ghc984"; }; 
-    # ghc9102 = mkShell { ghc = "ghc9102"; }; 
-    # ghc9122 = mkShell { ghc = "ghc9122"; }; 
+    default = ghc9103;
+    ghc966 = mkShell { ghc = "ghc966"; };
+    ghc966-nohoogle = mkShell { ghc = "ghc966"; withHoogle = false; };
+    ghc9103 = mkShell { ghc = "ghc9103"; };
+    ghc9103-nohoogle = mkShell { ghc = "ghc9103"; withHoogle = false; };
   };
 
-  projectFlake = project.flake {};
-
-  defaultHydraJobs = { 
-    ghc966 = projectFlake.hydraJobs.ghc966;
-    # ghc984 = projectFlake.hydraJobs.ghc984;
-    # ghc9102 = projectFlake.hydraJobs.ghc9102;
-    # ghc9122 = projectFlake.hydraJobs.ghc9122;
-    inherit packages; 
+  # Hydra jobs - each GHC version's flake is evaluated separately
+  defaultHydraJobs = {
+    ghc966 = (projects.ghc966.flake {}).hydraJobs;
+    ghc9103 = (projects.ghc9103.flake {}).hydraJobs;
+    inherit packages;
     inherit devShells;
-    required = utils.makeHydraRequiredJob hydraJobs; 
+    required = utils.makeHydraRequiredJob hydraJobs;
   };
 
   hydraJobsPerSystem = {
-    "x86_64-linux"   = defaultHydraJobs; 
+    "x86_64-linux"   = defaultHydraJobs;
     "x86_64-darwin"  = defaultHydraJobs;
-    "aarch64-linux"  = defaultHydraJobs; 
+    "aarch64-linux"  = defaultHydraJobs;
     "aarch64-darwin" = defaultHydraJobs;
   };
 
   hydraJobs = utils.flattenDerivationTree "-" hydraJobsPerSystem.${system};
+
+  # Default project flake for apps/packages (uses ghc9103)
+  defaultProjectFlake = projects.ghc9103.flake {};
 in
 
 {
   inherit devShells;
-  inherit hydraJobs;
-  inherit (projectFlake) apps;
-  inherit (projectFlake) packages;
-  # Explore the project via nix repl '.#'
-  project = project;
+  hydraJobs = hydraJobs;
+  apps = defaultProjectFlake.apps;
+  packages = defaultProjectFlake.packages;
+  # Explore the projects via nix repl '.#'
+  inherit projects;
 }

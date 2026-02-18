@@ -1,6 +1,7 @@
 name: ci-linux
 on:
   push:
+    branches: [ main ]
   pull_request:
 
 concurrency:
@@ -10,11 +11,19 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc:
+          - version: "9.6"
+            devshell: "ghc966-nohoogle"
+          - version: "9.10"
+            devshell: "ghc9103-nohoogle"
+    name: build (GHC ${{ matrix.ghc.version }})
     env:
       NIX_CONFIG: accept-flake-config = true
     steps:
-      # install deps.
-      - name: install dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libsystemd-dev
@@ -43,17 +52,17 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cabal/store
-          key: cabal-${{ hashFiles('cabal.project') }}
+          key: cabal-${{ matrix.ghc.version }}-${{ hashFiles('cabal.project') }}
 
-      - name: Prepare dependencies and build environment
+      - name: Prepare build environment
         run: |
-          nix develop .#ghc966-nohoogle -c bash -lc 'ghc --version'
-          nix develop .#ghc966-nohoogle -c bash -lc 'cabal update'
+          nix develop .#${{ matrix.ghc.devshell }} -c bash -lc 'ghc --version'
+          nix develop .#${{ matrix.ghc.devshell }} -c bash -lc 'cabal update'
 
-      - name: Build
+      - name: Build project
         run: |
-          nix develop .#ghc966-nohoogle -c bash -lc 'cabal build --ghc-options=-Werror -j all'
+          nix develop .#${{ matrix.ghc.devshell }} -c bash -lc 'cabal build --ghc-options=-Werror -j all'
 
-      - name: Test
+      - name: Test project
         run: |
-          nix develop .#ghc966-nohoogle -c bash -lc 'cabal test --ghc-options=-Werror all'
+          nix develop .#${{ matrix.ghc.devshell }} -c bash -lc 'cabal test --ghc-options=-Werror all'

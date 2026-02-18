@@ -74,6 +74,7 @@ import Data.IORef (
 import Data.List (isInfixOf)
 import Data.ListMap qualified as LM
 import Data.Map qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Ratio ((%))
 import Data.Set qualified as Set
 import Devnet.Test.LatestEraTransitionSpec qualified as LatestEraTransitionSpec
@@ -92,6 +93,7 @@ import Test.Tasty (
 import Test.Tasty.HUnit (
   assertBool,
   assertEqual,
+  assertFailure,
   testCase,
  )
 
@@ -212,8 +214,11 @@ registeredStakePoolNode = do
                   initial = length initialStakePools
                   current = length currentStakePools
                 assertEqual "Blockchain should have one new registered stake pool" 1 (current - initial)
-                assertBool "The registered stake address should delegate it's stake to the new registered stake pool" $
-                  snd (head $ Map.toList stakeKeyDelegation) `Set.member` currentStakePools
+                case listToMaybe (Map.toList stakeKeyDelegation) of
+                  Nothing -> assertFailure "Stake key delegations should not be empty"
+                  Just sk ->
+                    assertBool "The registered stake address should delegate it's stake to the new registered stake pool" $
+                      snd sk `Set.member` currentStakePools
 
 stakePoolRewards :: IO ()
 stakePoolRewards = do

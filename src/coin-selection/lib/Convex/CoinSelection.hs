@@ -144,6 +144,7 @@ import Data.Bifunctor (Bifunctor (..))
 import Data.Default (Default (..))
 import Data.Functor.Identity (Identity)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Map.Ordered qualified as OMap
@@ -631,23 +632,25 @@ signBalancedTxBody witnesses (C.BalancedTxBody _ txbody _changeOutput _fee) =
   Throws an error if the transaction body has no inputs and the wallet UTxO set is empty.
 -}
 addOwnInput :: (MonadError err m, C.IsShelleyBasedEra era, AsCoinSelectionError err) => TxBuilder era -> UtxoSet ctx a -> m (TxBuilder era)
-addOwnInput builder allUtxos =
+addOwnInput builder allUtxos = do
   let body = BuildTx.buildTx builder
       UtxoSet{_utxos} = Utxos.removeUtxos (spentTxIns body) allUtxos
-   in if
-        | not (List.null $ view L.txIns body) -> pure builder
-        | not (Map.null _utxos) ->
-            -- Select ada-only outputs if possible
-            let availableUTxOs =
-                  List.sortOn
-                    ( length
-                        . (\(C.InAnyCardanoEra _ (C.TxOut _ txOutValue _ _)) -> toList (C.txOutValueToValue txOutValue))
-                        . fst
-                        . snd
-                    )
-                    (Map.toList _utxos)
-             in pure $ builder <> execBuildTx (spendPublicKeyOutput (fst $ head availableUTxOs))
-        | otherwise -> throwing_ _NoWalletUTxOs
+  if List.null $ view L.txIns body
+    then case NE.nonEmpty (Map.toList _utxos) of
+      Nothing -> throwing_ _NoWalletUTxOs
+      Just nonEmptyUtxos -> do
+        -- Select ada-only outputs if possible
+        let availableUTxOs =
+              NE.sortWith
+                ( length
+                    . (\(C.InAnyCardanoEra _ (C.TxOut _ txOutValue _ _)) -> toList (C.txOutValueToValue txOutValue))
+                    . fst
+                    . snd
+                )
+                nonEmptyUtxos
+        pure $ builder <> execBuildTx (spendPublicKeyOutput (fst $ NE.head availableUTxOs))
+    else
+      pure builder
 
 {- | Add a collateral input. Since the Babbage era, return collateral is supported, so we can use
   UTXOs containing native assets as collateral - the native assets will be returned via the

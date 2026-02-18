@@ -128,12 +128,12 @@ test-suite convex-devnet-test
     , ouroboros-consensus-cardano
     , ouroboros-consensus-protocol
     , plutus-core
-    , plutus-tx
-    , plutus-tx-plugin
+    , plutus-ledger-api
 
   build-depends:
     , aeson
     , base           >=4.14.0
+    , bytestring
     , containers
     , contra-tracer
     , filepath

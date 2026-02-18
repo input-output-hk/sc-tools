@@ -19,9 +19,12 @@ The `main` branch uses the following versions of its major dependencies:
 |Name|Version|
 |--|--|
 |`cardano-node`|[10.6.1](https://github.com/IntersectMBO/cardano-node/releases/tag/10.6.1)|
-|`cardano-api`|[10.21.0.0](https://chap.intersectmbo.org/package/cardano-api-10.21.0.0/)|
-|`ghc`|9.6.6|
-|`cabal`|3.10.3.0|
+|`cardano-api`|[10.23.0.0](https://chap.intersectmbo.org/package/cardano-api-10.23.0.0/)|
+|`ghc`|9.6.6 or 9.10.3|
+|`cabal`|3.10.3.0 or 3.16.1.0|
+
+For a dev environment with all dependencies, run `nix develop` (defaults to GHC 9.10.3).
+For GHC 9.6.6 specifically, run `nix develop .#ghc966`.
 
 ## Evaluating Transactions
 
@@ -84,7 +87,7 @@ class Monad m => MonadBlockchain m where
 ```
 
 Both operations can be performed efficiently by a Cardano node using `cardano-api`.
-There `MonadUtxoQuery` class has support for queries that can only be answered efficiently by 
+There `MonadUtxoQuery` class has support for queries that can only be answered efficiently by
 
 ## Testing
 

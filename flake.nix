@@ -8,7 +8,8 @@
       inputs.hackage.follows = "hackage";
     };
 
-    nixpkgs.follows = "haskell-nix/nixpkgs";
+    # Using nixpkgs 24.11 which has ghc945 needed for haskell.nix bootstrap
+    nixpkgs.follows = "haskell-nix/nixpkgs-2411";
 
     hackage = {
       url = "github:input-output-hk/hackage.nix";
