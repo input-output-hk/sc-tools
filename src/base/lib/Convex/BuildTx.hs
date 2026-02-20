@@ -112,6 +112,10 @@ module Convex.BuildTx (
   buildScriptWitness,
   buildRefScriptWitness,
 
+  -- ** Validity Ranges
+  mustOccurAfter,
+  mustOccurBefore
+
   -- ** Utilities
   assetValue,
 
@@ -988,6 +992,16 @@ addConwayUnRegCertNoWitness cert' = do
               (C.toShelleyStakeCredential cert')
               Ledger.SNothing
   addBtx (over (L.txCertificates . L._TxCertificates) ((cert, pure $ Just (cert', C.KeyWitness C.KeyWitnessForStakeAddr)) OMap.|<))
+
+-- | Set the lower validity bound of the transaction.
+mustOccurAfter :: (MonadBuildTx era m) => C.TxValidityLowerBound era -> m ()
+mustOccurAfter lb = do
+  addBtx $ C.setTxValidityLowerBound lb
+
+-- | Set the upper validity bound of the transaction.
+mustOccurBefore :: (MonadBuildTx era m) => C.TxValidityUpperBound era -> m ()
+mustOccurBefore ub = do
+  addBtx $ C.setTxValidityUpperBound ub
 
 -- | Create a 'C.StakeCredential' registration as a ConwayCertificate to the transaction.
 mkConwayStakeCredentialRegistrationCertificate
