@@ -60,6 +60,9 @@ import GHC.IsList (IsList (toList))
 
 newtype Wallet = Wallet {getWallet :: SigningKey PaymentKey}
 
+instance Eq Wallet where
+  Wallet sk1 == Wallet sk2 = C.serialiseToRawBytes sk1 == C.serialiseToRawBytes sk2
+
 instance ToJSON Wallet where
   toJSON k = object ["private_key" .= privateKey k]
 

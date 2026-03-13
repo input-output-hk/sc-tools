@@ -53,6 +53,7 @@ module Convex.BuildTx (
   addOutput,
   setScriptsValid,
   addRequiredSignature,
+  addValidityRangeSlots,
 
   -- ** Variations of @addInput@
   spendPublicKeyOutput,
@@ -77,6 +78,7 @@ module Convex.BuildTx (
   payToScriptHash,
   payToScriptDatumHash,
   payToScriptInlineDatum,
+  payToScriptInlineDatumWithRef,
   createRefScriptBase,
   createRefScriptNoDatum,
   createRefScriptDatumHash,
@@ -843,6 +845,16 @@ payToScriptInlineDatum network sh datum stakeRef vl =
         txo = C.TxOut addr val dat C.ReferenceScriptNone
      in addOutput txo
 
+payToScriptInlineDatumWithRef :: forall a era lang m. (MonadBuildTx era m, Plutus.ToData a, C.IsBabbageBasedEra era, C.IsScriptLanguage lang) => NetworkId -> C.ScriptHash -> a -> C.StakeAddressReference -> C.Value -> C.Script lang -> m ()
+payToScriptInlineDatumWithRef network sh datum stakeRef vl script =
+  inBabbage @era $
+    let val = mkTxOutValue vl
+        addr = C.makeShelleyAddressInEra C.shelleyBasedEra network (C.PaymentCredentialByScript sh) stakeRef
+        dat = C.TxOutDatumInline C.babbageBasedEra (toHashableScriptData datum)
+        refScript = C.ReferenceScript C.babbageBasedEra $ C.ScriptInAnyLang C.scriptLanguage script
+        txo = C.TxOut addr val dat refScript
+     in addOutput txo
+
 -- TODO: Functions for building outputs (Output -> Output)
 
 setScriptsValid :: (C.IsAlonzoBasedEra era) => (MonadBuildTx era m) => m ()
@@ -872,6 +884,13 @@ minAdaDeposit (C.LedgerProtocolParameters params) txOut =
 -- | Apply 'setMinAdaDeposit' to all outputs
 setMinAdaDepositAll :: (MonadBuildTx era m, C.IsMaryBasedEra era) => C.LedgerProtocolParameters era -> m ()
 setMinAdaDepositAll params = addBtx $ over (L.txOuts . mapped) (setMinAdaDeposit params)
+
+-- | Add a validity range to the transaction using slot numbers.
+addValidityRangeSlots :: (MonadBuildTx era m, C.IsAlonzoBasedEra era) => C.SlotNo -> C.SlotNo -> m ()
+addValidityRangeSlots lower upper =
+  addBtx $
+    C.setTxValidityLowerBound (C.TxValidityLowerBound C.allegraBasedEra lower)
+      . C.setTxValidityUpperBound (C.TxValidityUpperBound C.shelleyBasedEra (Just upper))
 
 -- | Add a public key hash to the list of required signatures.
 addRequiredSignature :: (MonadBuildTx era m, C.IsAlonzoBasedEra era) => Hash PaymentKey -> m ()
