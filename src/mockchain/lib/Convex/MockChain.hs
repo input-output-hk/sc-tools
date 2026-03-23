@@ -85,7 +85,6 @@ import Cardano.Ledger.Alonzo.Core qualified as L
 import Cardano.Ledger.Alonzo.Plutus.Evaluate (
   CollectError,
   collectPlutusScriptsWithContext,
-  evalPlutusScripts,
  )
 import Cardano.Ledger.Alonzo.TxWits (unTxDats)
 import Cardano.Ledger.Api qualified as L
@@ -100,7 +99,7 @@ import Cardano.Ledger.Conway.State (ConwayEraAccounts (..))
 import Cardano.Ledger.Core qualified as Core
 import Cardano.Ledger.Plutus.Evaluate (
   PlutusWithContext (..),
-  ScriptResult (..),
+  evaluatePlutusWithContext,
  )
 import Cardano.Ledger.Plutus.Language (
   LegacyPlutusArgs (..),
@@ -138,6 +137,7 @@ import Control.Lens (
   to,
   view,
   (%=),
+  (%~),
   (&),
   (.=),
   (.~),
@@ -178,6 +178,7 @@ import Convex.Class (
   MonadUtxoQuery (..),
   SendTxError (..),
   ValidationError (..),
+  coverageData,
   datums,
   env,
   failedTransactions,
@@ -212,17 +213,21 @@ import Convex.Wallet (
  )
 import Data.Bifunctor (Bifunctor (..))
 import Data.Default (Default (def))
+import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Set qualified as Set
+import Data.Text qualified as T
 import PlutusCore qualified as PLC
 import PlutusLedgerApi.Common (
   PlutusLedgerLanguage (..),
+  VerboseMode (..),
   mkTermToEvaluate,
  )
 import PlutusLedgerApi.Common qualified as Plutus
 import PlutusLedgerApi.V3 qualified as PV3
+import PlutusTx.Coverage (CoverageData, coverageDataFromLogMsg)
 import UntypedPlutusCore qualified as UPLC
 
 {- | Apply the plutus script to all its arguments and return a plutus
@@ -347,6 +352,7 @@ initialStateFor params@NodeParams{npNetworkId} utxos =
           , mcsFailedTransactions = []
           , mcsDatums = Map.empty
           , mcsTxById = Map.empty
+          , mcsCoverageData = mempty
           }
 
 utxoEnv :: (Ledger.EraCertState (C.ShelleyLedgerEra era)) => NodeParams era -> SlotNo -> UtxoEnv (C.ShelleyLedgerEra era)
@@ -367,11 +373,13 @@ getTxExUnits NodeParams{npSystemStart, npEraHistory, npProtocolParameters} utxo 
       rdmrs -> traverse (either (Left . Phase2Error) (Right . snd)) rdmrs
 
 applyTransaction :: forall era. (EraStake (C.ShelleyLedgerEra era), C.IsEra era, C.IsAlonzoBasedEra era) => NodeParams era -> MockChainState era -> C.Tx era -> Either (SendTxError era) (MockChainState era, Validated (Core.Tx (C.ShelleyLedgerEra era)))
-applyTransaction params state' tx'@(C.ShelleyTx _era tx) = C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $ do
-  let currentSlot = state' ^. env . L.slot
-      utxoState_ = state' ^. poolState . L.utxoState
+applyTransaction params oldState tx'@(C.ShelleyTx _era tx) = C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $ do
+  let currentSlot = oldState ^. env . L.slot
+      utxoState_ = oldState ^. poolState . L.utxoState
       utxo = utxoState_ ^. L._UTxOState . _1
-  (vtx, scripts) <- first (MockchainError . CollectErrors) (constructValidated (Defaults.globals params) (utxoEnv params currentSlot) utxoState_ tx)
+  (vtx, scripts, covData) <- first (MockchainError . CollectErrors) (constructValidated (Defaults.globals params) (utxoEnv params currentSlot) utxoState_ tx)
+  -- add coverage data to the state
+  let state' = oldState & coverageData %~ (<>) covData
   result <- applyTx params state' vtx scripts
 
   -- Not sure if this step is needed.
@@ -384,8 +392,9 @@ applyTransaction params state' tx'@(C.ShelleyTx _era tx) = C.alonzoEraOnwardsCon
 -- | Evaluate a transaction, returning all of its script contexts.
 evaluateTx :: NodeParams C.ConwayEra -> SlotNo -> UTxO L.ConwayEra -> C.Tx C.ConwayEra -> Either (SendTxError C.ConwayEra) [PlutusWithContext]
 evaluateTx params slotNo utxo (C.ShelleyTx _ tx) = do
-  (vtx, scripts) <- first (MockchainError . CollectErrors) (constructValidated (Defaults.globals params) (utxoEnv params slotNo) (lsUTxOState (mcsPoolState state')) tx)
-  _ <- applyTx params state' vtx scripts
+  (vtx, scripts, covData) <- first (MockchainError . CollectErrors) (constructValidated (Defaults.globals params) (utxoEnv params slotNo) (lsUTxOState (mcsPoolState state')) tx)
+  let stateWithCovData = state' & coverageData %~ (<>) covData
+  _ <- applyTx params stateWithCovData vtx scripts
   pure scripts
  where
   state' =
@@ -412,22 +421,33 @@ constructValidated
   -> UtxoEnv (C.ShelleyLedgerEra era)
   -> UTxOState (C.ShelleyLedgerEra era)
   -> Core.Tx (C.ShelleyLedgerEra era)
-  -> m (Core.Tx (C.ShelleyLedgerEra era), [PlutusWithContext])
+  -> m (Core.Tx (C.ShelleyLedgerEra era), [PlutusWithContext], CoverageData)
 constructValidated globals (UtxoEnv _ pp _) st tx =
   C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $
     alonzoEraUtxo @era $
       case collectPlutusScriptsWithContext ei sysS pp tx utxo of
         Left errs -> throwError errs
         Right sLst ->
-          let scriptEvalResult = evalPlutusScripts sLst
-              vTx = set L.isValidTxL (IsValid (lift_ scriptEvalResult)) tx
-           in pure (vTx, sLst)
+          let
+            -- Evaluate each script individually to get traces
+            scriptResults = map (evaluatePlutusWithContext Verbose) sLst
+            -- Extract logs and check if validation passed
+            allLogs = concatMap fst scriptResults
+            validationPassed = all (isRight . snd) scriptResults
+
+            -- Format logs for display
+            logsStrLines = map T.unpack allLogs
+            allCoverageData = map coverageDataFromLogMsg logsStrLines
+            -- mappend allCoverageData
+            covData = mconcat allCoverageData
+
+            vTx = set L.isValidTxL (IsValid validationPassed) tx
+           in
+            pure (vTx, sLst, covData)
  where
   utxo = utxosUtxo st
   sysS = systemStart globals
   ei = epochInfo globals
-  lift_ (Passes _) = True
-  lift_ (Fails _ _) = False
 
 applyTx
   :: forall era

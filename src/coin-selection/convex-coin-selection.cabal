@@ -59,6 +59,7 @@ library
     , exceptions
     , lens
     , ordered-containers
+    , plutus-tx
     , primitive
     , text
 

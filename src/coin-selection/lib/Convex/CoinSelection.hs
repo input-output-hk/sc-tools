@@ -33,6 +33,7 @@ module Convex.CoinSelection (
   txBody,
   changeOutput,
   numWitnesses,
+  coverageFromBalanceTxError,
 
   -- * Balancing
   BalanceTxError (..),
@@ -160,6 +161,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Generics (Generic)
 import GHC.IsList (IsList (fromList, toList))
+import PlutusTx.Coverage (CoverageData, coverageDataFromLogMsg)
 
 type ERA = ConwayEra
 
@@ -891,3 +893,8 @@ publicKeyCredential = preview (L._TxOut . _1 . L._ShelleyAddress . _2 . L._Shell
 spendPubKeyTxIn :: C.TxIn -> (C.TxIn, C.BuildTxWith C.BuildTx (C.Witness C.WitCtxTxIn era))
 -- TODO: consolidate with Convex.BuildTx.spendPublicKeyOutput
 spendPubKeyTxIn txIn = (txIn, C.BuildTxWith (C.KeyWitness C.KeyWitnessForSpending))
+
+coverageFromBalanceTxError :: BalanceTxError e -> CoverageData
+coverageFromBalanceTxError (ABalancingError (ScriptExecutionErr errs)) =
+  foldMap (\(_, _, logs) -> foldMap (coverageDataFromLogMsg . Text.unpack) logs) errs
+coverageFromBalanceTxError _ = mempty
