@@ -9,9 +9,8 @@
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:defer-errors #-}
 #endif
 
--- | Scripts used for testing
+-- | Scripts used for testing coin-selection
 module Scripts (
-  v2SpendingScriptSerialised,
   v2SpendingScript,
   v2StakingScript,
   matchingIndexValidatorScript,
@@ -38,12 +37,11 @@ import Scripts.MatchingIndex qualified as MatchingIndex
 #else
 #endif
 
+-- | V2 spending script (always succeeds, 3 args: datum, redeemer, context)
 v2SpendingScript :: C.PlutusScript C.PlutusScriptV2
 v2SpendingScript = C.PlutusScriptSerialised $ alwaysSucceedingNAryFunction 3
 
-v2SpendingScriptSerialised :: SerialisedScript
-v2SpendingScriptSerialised = alwaysSucceedingNAryFunction 3
-
+-- | V2 staking script (always succeeds, 2 args: redeemer, context)
 v2StakingScript :: C.PlutusScript C.PlutusScriptV2
 v2StakingScript = C.PlutusScriptSerialised $ alwaysSucceedingNAryFunction 2
 
@@ -54,14 +52,15 @@ matchingIndexValidatorCompiled = $$(PlutusTx.compile [||MatchingIndex.matchingIn
 matchingIndexMPCompiled :: CompiledCode (BuiltinData -> BuiltinUnit)
 matchingIndexMPCompiled = $$(PlutusTx.compile [||MatchingIndex.matchingIndexMPScript||])
 
-{- | Script that passes if the input's index (in the list of transaction inputs)
-  matches the number passed as the redeemer
--}
 matchingIndexValidatorScript :: C.PlutusScript C.PlutusScriptV3
 matchingIndexValidatorScript = compiledCodeToScript matchingIndexValidatorCompiled
 
 matchingIndexMPScript :: C.PlutusScript C.PlutusScriptV3
 matchingIndexMPScript = compiledCodeToScript matchingIndexMPCompiled
+
+{- | Script that passes if the input's index (in the list of transaction inputs)
+  matches the number passed as the redeemer
+-}
 
 {- | Spend an output locked by 'matchingIndexValidatorScript', setting
 the redeemer to the index of the input in the final transaction

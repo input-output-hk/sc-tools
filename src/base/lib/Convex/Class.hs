@@ -29,6 +29,7 @@ module Convex.Class (
   MockChainState (..),
   env,
   poolState,
+  coverageData,
   transactions,
   failedTransactions,
   datums,
@@ -165,6 +166,7 @@ import Ouroboros.Consensus.HardFork.History (
 import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as T
 import Ouroboros.Network.Protocol.LocalTxSubmission.Type (SubmitResult (..))
 import PlutusLedgerApi.V1 qualified as PV1
+import PlutusTx.Coverage (CoverageData)
 import Test.QuickCheck.Monadic (PropertyM)
 
 -- Error types
@@ -362,6 +364,7 @@ data MockChainState era
   , mcsDatums :: Map (C.Hash C.ScriptData) C.HashableScriptData
   , mcsTxById :: Map C.TxId (C.Tx era)
   -- ^ Index of transactions by ID
+  , mcsCoverageData :: CoverageData
   }
 
 makeLensesFor
@@ -371,6 +374,7 @@ makeLensesFor
   , ("mcsFailedTransactions", "failedTransactions")
   , ("mcsDatums", "datums")
   , ("mcsTxById", "txById")
+  , ("mcsCoverageData", "coverageData")
   ]
   ''MockChainState
 
