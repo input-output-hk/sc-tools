@@ -21,7 +21,6 @@ module Scripts (
 where
 
 import Cardano.Api qualified as C
-import PlutusLedgerApi.Common (SerialisedScript)
 import PlutusLedgerApi.Test.Examples (alwaysSucceedingNAryFunction)
 
 #if __GLASGOW_HASKELL__ < 910
@@ -52,15 +51,14 @@ matchingIndexValidatorCompiled = $$(PlutusTx.compile [||MatchingIndex.matchingIn
 matchingIndexMPCompiled :: CompiledCode (BuiltinData -> BuiltinUnit)
 matchingIndexMPCompiled = $$(PlutusTx.compile [||MatchingIndex.matchingIndexMPScript||])
 
+{- | Script that passes if the input's index (in the list of transaction inputs)
+  matches the number passed as the redeemer
+-}
 matchingIndexValidatorScript :: C.PlutusScript C.PlutusScriptV3
 matchingIndexValidatorScript = compiledCodeToScript matchingIndexValidatorCompiled
 
 matchingIndexMPScript :: C.PlutusScript C.PlutusScriptV3
 matchingIndexMPScript = compiledCodeToScript matchingIndexMPCompiled
-
-{- | Script that passes if the input's index (in the list of transaction inputs)
-  matches the number passed as the redeemer
--}
 
 {- | Spend an output locked by 'matchingIndexValidatorScript', setting
 the redeemer to the index of the input in the final transaction
