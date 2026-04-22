@@ -108,6 +108,8 @@ spendPublicKeyOutput = mockchainSucceeds $ do
 
 See [src/coin-selection/test/Spec.hs](src/coin-selection/test/Spec.hs) for more details.
 
+For a more extensive testing framework, see [sc-testing-tools](https://github.com/input-output-hk/sc-testing-tools).
+
 ## Working with cardano node
 
 The `node-client` package exposes a simple interface to some of node client functions from `cardano-api`. The main function is `foldClient`:
