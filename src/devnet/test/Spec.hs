@@ -105,7 +105,7 @@ main = do
       "test"
       [ testCase "cardano-node is available" checkCardanoNode
       , testCase "start local node" startLocalNode
-      , testCase "check transition to conway era and protocol version 10" checkTransitionToConway
+      , testCase "check transition to conway era and protocol version 11" checkTransitionToConway
       , LatestEraTransitionSpec.tests
       , testCase "make a payment" makePayment
       , testCase "start local stake pool node" startLocalStakePoolNode
@@ -116,7 +116,7 @@ main = do
 
 checkCardanoNode :: IO ()
 checkCardanoNode = do
-  let expectedVersion = "10.6.1"
+  let expectedVersion = "10.6.4"
   version <- getCardanoNodeVersion
   let isExpected = expectedVersion `isInfixOf` version
   unless isExpected (putStrLn version)
@@ -165,7 +165,7 @@ checkTransitionToConway = do
             Left err -> failure $ show err
             Right () -> do
               majorProtVersions <- readIORef majorProtVersionsRef
-              expectedVersion <- L.mkVersion (10 :: Integer)
+              expectedVersion <- L.mkVersion (11 :: Integer)
               assertBool "Should have correct conway era protocol version" $
                 not (null majorProtVersions) && all (== expectedVersion) majorProtVersions
 
