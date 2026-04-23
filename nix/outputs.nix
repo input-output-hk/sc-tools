@@ -25,9 +25,17 @@ let
   };
 
   # Hydra jobs - each GHC version's flake is evaluated separately
-  defaultHydraJobs = {
-    ghc966 = (projects.ghc966.flake {}).hydraJobs;
-    ghc9103 = (projects.ghc9103.flake {}).hydraJobs;
+  defaultHydraJobs = let
+    # Remove tests that fail to work due to Hydra's sandbox
+    filterChecks = jobs: jobs // {
+      checks = removeAttrs jobs.checks [
+        "convex-maestro:test:convex-maestro-test"
+        "convex-devnet:test:convex-devnet-test"
+      ];
+    };
+  in {
+    ghc966 = filterChecks (projects.ghc966.flake {}).hydraJobs;
+    ghc9103 = filterChecks (projects.ghc9103.flake {}).hydraJobs;
     inherit packages;
     inherit devShells;
     required = utils.makeHydraRequiredJob hydraJobs;
