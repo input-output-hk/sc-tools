@@ -43,7 +43,6 @@ let
 
   hydraJobsPerSystem = {
     "x86_64-linux"   = defaultHydraJobs;
-    "x86_64-darwin"  = defaultHydraJobs;
     "aarch64-linux"  = defaultHydraJobs;
     "aarch64-darwin" = defaultHydraJobs;
   };
