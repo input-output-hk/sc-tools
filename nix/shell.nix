@@ -74,6 +74,8 @@ let
     pkgs.bzip2
     pkgs.gawk
     pkgs.zlib
+    pkgs.pkg-config
+    pkgs.lmdb
     pkgs.cacert
     pkgs.curl
     pkgs.bash
