@@ -64,4 +64,4 @@ library
     , cardano-api
     , cardano-slotting
     , ouroboros-consensus
-    , ouroboros-network-protocols
+    , ouroboros-network:protocols

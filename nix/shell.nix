@@ -53,6 +53,7 @@ let
   };
 
   linuxPkgs = lib.optionals pkgs.hostPlatform.isLinux [
+    pkgs.liburing
   ];
 
   darwinPkgs = lib.optionals pkgs.hostPlatform.isDarwin [

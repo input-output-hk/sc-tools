@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
@@ -106,8 +107,10 @@ import Cardano.Ledger.Babbage.PParams qualified as L
 import Cardano.Ledger.BaseTypes qualified as BaseTypes
 import Cardano.Ledger.Binary.Encoding (EncCBOR)
 import Cardano.Ledger.Binary.Version qualified as Version
+import Cardano.Ledger.Coin qualified as L
 import Cardano.Ledger.Conway.PParams qualified as L
 import Cardano.Ledger.Core (PParams)
+import Cardano.Ledger.Core qualified as L
 import Cardano.Ledger.Plutus.CostModels qualified as CostModels
 import Cardano.Ledger.Plutus.Language qualified as Plutus.Language
 import Cardano.Slotting.Slot (EpochSize (..))
@@ -151,6 +154,7 @@ import Ouroboros.Consensus.Block.Abstract qualified as Ouroboros
 import Ouroboros.Consensus.HardFork.History.EraParams (
   EraParams (..),
   SafeZone (StandardSafeZone),
+  pattern NoPerasEnabled,
  )
 import Ouroboros.Consensus.HardFork.History.Summary (
   Bound (..),
@@ -409,10 +413,10 @@ eraSummary :: NetworkEraSummary -> EraSummary
 eraSummary NetworkEraSummary{_networkEraStart, _networkEraEnd, _networkEraParameters} =
   let eraEnd =
         let NetworkEraBound{_boundEpoch, _boundSlot, _boundTime} = _networkEraEnd
-         in EraEnd Bound{boundTime = RelativeTime _boundTime, boundSlot = slot _boundSlot, boundEpoch = epoch _boundEpoch}
+         in EraEnd Bound{boundTime = RelativeTime _boundTime, boundSlot = slot _boundSlot, boundEpoch = epoch _boundEpoch, boundPerasRound = NoPerasEnabled}
       eraStart =
         let NetworkEraBound{_boundEpoch, _boundSlot, _boundTime} = _networkEraStart
-         in Bound{boundTime = RelativeTime _boundTime, boundSlot = slot _boundSlot, boundEpoch = epoch _boundEpoch}
+         in Bound{boundTime = RelativeTime _boundTime, boundSlot = slot _boundSlot, boundEpoch = epoch _boundEpoch, boundPerasRound = NoPerasEnabled}
       eraParams =
         let NetworkEraParameters{_parametersEpochLength, _parametersSlotLength, _parametersSafeZone} = _networkEraParameters
          in EraParams
@@ -420,6 +424,7 @@ eraSummary NetworkEraSummary{_networkEraStart, _networkEraEnd, _networkEraParame
               , eraSlotLength = mkSlotLength _parametersSlotLength
               , eraSafeZone = StandardSafeZone _parametersSafeZone
               , eraGenesisWin = Ouroboros.GenesisWindow (2 * 2160) -- 2 * max-rollbacks
+              , eraPerasRoundLength = NoPerasEnabled
               }
    in EraSummary
         { eraEnd
@@ -471,19 +476,19 @@ protocolParametersConway pp =
   let votingThresholdFromRational = C.unsafeBoundedRational @BaseTypes.UnitInterval . fromMaybe 0.51
    in L.PParams
         ( L.emptyPParamsIdentity @ConwayEra
-            & L.hkdMinFeeAL .~ L.Coin (_protocolParamsMinFeeA pp)
-            & L.hkdMinFeeBL .~ L.Coin (_protocolParamsMinFeeB pp)
+            & L.hkdTxFeePerByteL .~ L.CoinPerByte (L.toCompactPartial (L.Coin (_protocolParamsMinFeeA pp)))
+            & L.hkdTxFeeFixedCompactL .~ L.toCompactPartial (L.Coin (_protocolParamsMinFeeB pp))
             & L.hkdMaxBBSizeL .~ fromInteger (_protocolParamsMaxBlockSize pp)
             & L.hkdMaxTxSizeL .~ fromInteger (_protocolParamsMaxTxSize pp)
             & L.hkdMaxBHSizeL .~ fromInteger (_protocolParamsMaxBlockHeaderSize pp)
-            & L.hkdKeyDepositL .~ toLovelace (_protocolParamsKeyDeposit pp)
+            & L.hkdKeyDepositCompactL .~ L.toCompactPartial (toLovelace (_protocolParamsKeyDeposit pp))
             & L.hkdPoolDepositCompactL .~ L.toCompactPartial (toLovelace (_protocolParamsKeyDeposit pp))
             & L.hkdEMaxL .~ L.EpochInterval (fromInteger (_protocolParamsEMax pp))
             & L.hkdNOptL .~ fromInteger (_protocolParamsNOpt pp)
             & L.hkdA0L .~ C.unsafeBoundedRational (_protocolParamsA0 pp) -- TODO: Is unsafeBoundedRational ok to use here?
             & L.hkdRhoL .~ C.unsafeBoundedRational (_protocolParamsRho pp)
             & L.hkdTauL .~ C.unsafeBoundedRational (_protocolParamsTau pp)
-            & L.hkdMinPoolCostL .~ toLovelace (_protocolParamsMinPoolCost pp)
+            & L.hkdMinPoolCostCompactL .~ L.toCompactPartial (toLovelace (_protocolParamsMinPoolCost pp))
             & L.hkdCostModelsL .~ costModels (_protocolParamsCostModelsRaw pp)
             & L.hkdPricesL
               .~ L.Prices
@@ -500,10 +505,10 @@ protocolParametersConway pp =
                 { L.exUnitsSteps = quantity (_protocolParamsMaxBlockExSteps pp)
                 , L.exUnitsMem = quantity (_protocolParamsMaxBlockExMem pp)
                 }
-            & L.hkdMaxValSizeL .~ quantity (_protocolParamsMaxValSize pp)
+            & L.hkdMaxValSizeL .~ fromIntegral (quantity (_protocolParamsMaxValSize pp))
             & L.hkdCollateralPercentageL .~ fromInteger (_protocolParamsCollateralPercent pp)
             & L.hkdMaxCollateralInputsL .~ fromInteger (_protocolParamsMaxCollateralInputs pp)
-            & L.hkdCoinsPerUTxOByteL .~ L.CoinPerByte (toLovelace (_protocolParamsCoinsPerUtxoSize pp))
+            & L.hkdCoinsPerUTxOByteL .~ L.CoinPerByte (L.toCompactPartial (toLovelace (_protocolParamsCoinsPerUtxoSize pp)))
             -- Conway-specific values
             -- see note [Protocol Parameter Conversion]
             & L.hkdPoolVotingThresholdsL
@@ -527,10 +532,10 @@ protocolParametersConway pp =
                 , L.dvtPPGovGroup = votingThresholdFromRational (_protocolParamsDvtPPGovGroup pp)
                 , L.dvtTreasuryWithdrawal = votingThresholdFromRational (_protocolParamsDvtTreasuryWithdrawal pp)
                 }
-            & L.hkdCommitteeMinSizeL .~ maybe 7 quantity (_protocolParamsCommitteeMinSize pp)
+            & L.hkdCommitteeMinSizeL .~ maybe 7 (fromIntegral . quantity) (_protocolParamsCommitteeMinSize pp)
             & L.hkdCommitteeMaxTermLengthL .~ BaseTypes.EpochInterval (maybe 146 (fromIntegral . quantity) (_protocolParamsCommitteeMaxTermLength pp))
             & L.hkdGovActionLifetimeL .~ BaseTypes.EpochInterval (maybe 6 (fromIntegral . quantity) (_protocolParamsGovActionLifetime pp))
-            & L.hkdGovActionDepositL .~ maybe 100_000_000_000 toLovelace (_protocolParamsGovActionDeposit pp)
+            & L.hkdGovActionDepositCompactL .~ L.toCompactPartial (maybe 100_000_000_000 toLovelace (_protocolParamsGovActionDeposit pp))
             & L.hkdDRepDepositCompactL .~ L.toCompactPartial (maybe 500_000_000 toLovelace (_protocolParamsDrepDeposit pp))
             & L.hkdDRepActivityL .~ BaseTypes.EpochInterval (maybe 20 (fromIntegral . quantity) (_protocolParamsDrepActivity pp))
             & L.hkdMinFeeRefScriptCostPerByteL .~ C.unsafeBoundedRational (fromMaybe 15 (_protocolParamsMinFeeRefScriptCostPerByte pp))

@@ -93,7 +93,7 @@ library
   build-depends:
     , base16-bytestring
     , bytestring
-    , cardano-api                  ==10.23.0.0
+    , cardano-api                  ==11.0.0.0
     , cardano-binary
     , cardano-crypto-class
     , cardano-crypto-wrapper
@@ -115,8 +115,8 @@ library
     , graphviz
     , ordered-containers
     , ouroboros-consensus
-    , ouroboros-consensus-cardano
-    , ouroboros-network-protocols
+    , ouroboros-consensus:cardano
+    , ouroboros-network:protocols
     , plutus-core
     , plutus-ledger-api
     , plutus-tx

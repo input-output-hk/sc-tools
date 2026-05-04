@@ -95,6 +95,9 @@ import Cardano.Ledger.BaseTypes (
   getVersion,
   pvMajor,
  )
+import Cardano.Ledger.Compactible (
+  fromCompact,
+ )
 import Cardano.Ledger.Conway.State (ConwayEraAccounts (..))
 import Cardano.Ledger.Core qualified as Core
 import Cardano.Ledger.Plutus.Evaluate (
@@ -126,9 +129,6 @@ import Cardano.Ledger.Shelley.LedgerState (
   smartUTxOState,
  )
 import Cardano.Ledger.State (ChainAccountState (..), EraStake, accountsL, accountsMapL, balanceAccountStateL, stakePoolDelegationAccountStateL)
-import Cardano.Ledger.UMap (
-  fromCompact,
- )
 import Cardano.Ledger.Val qualified as Val
 import Control.Lens (
   at,
@@ -214,7 +214,7 @@ import Convex.Wallet (
 import Data.Bifunctor (Bifunctor (..))
 import Data.Default (Default (def))
 import Data.Either (isRight)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_, toList, traverse_)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -372,7 +372,7 @@ getTxExUnits NodeParams{npSystemStart, npEraHistory, npProtocolParameters} utxo 
       -- Left e -> Left (Phase1Error e)
       rdmrs -> traverse (either (Left . Phase2Error) (Right . snd)) rdmrs
 
-applyTransaction :: forall era. (EraStake (C.ShelleyLedgerEra era), C.IsEra era, C.IsAlonzoBasedEra era) => NodeParams era -> MockChainState era -> C.Tx era -> Either (SendTxError era) (MockChainState era, Validated (Core.Tx (C.ShelleyLedgerEra era)))
+applyTransaction :: forall era. (EraStake (C.ShelleyLedgerEra era), C.IsEra era, C.IsAlonzoBasedEra era) => NodeParams era -> MockChainState era -> C.Tx era -> Either (SendTxError era) (MockChainState era, Validated (Core.Tx Core.TopTx (C.ShelleyLedgerEra era)))
 applyTransaction params oldState tx'@(C.ShelleyTx _era tx) = C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $ do
   let currentSlot = oldState ^. env . L.slot
       utxoState_ = oldState ^. poolState . L.utxoState
@@ -420,13 +420,13 @@ constructValidated
   => Globals
   -> UtxoEnv (C.ShelleyLedgerEra era)
   -> UTxOState (C.ShelleyLedgerEra era)
-  -> Core.Tx (C.ShelleyLedgerEra era)
-  -> m (Core.Tx (C.ShelleyLedgerEra era), [PlutusWithContext], CoverageData)
+  -> Core.Tx Core.TopTx (C.ShelleyLedgerEra era)
+  -> m (Core.Tx Core.TopTx (C.ShelleyLedgerEra era), [PlutusWithContext], CoverageData)
 constructValidated globals (UtxoEnv _ pp _) st tx =
   C.alonzoEraOnwardsConstraints @era C.alonzoBasedEra $
     alonzoEraUtxo @era $
       case collectPlutusScriptsWithContext ei sysS pp tx utxo of
-        Left errs -> throwError errs
+        Left errs -> throwError (toList errs)
         Right sLst ->
           let
             -- Evaluate each script individually to get traces
@@ -454,9 +454,9 @@ applyTx
    . (C.IsShelleyBasedEra era)
   => NodeParams era
   -> MockChainState era
-  -> Core.Tx (C.ShelleyLedgerEra era)
+  -> Core.Tx Core.TopTx (C.ShelleyLedgerEra era)
   -> [PlutusWithContext]
-  -> Either (SendTxError era) (MockChainState era, Validated (Core.Tx (C.ShelleyLedgerEra era)))
+  -> Either (SendTxError era) (MockChainState era, Validated (Core.Tx Core.TopTx (C.ShelleyLedgerEra era)))
 applyTx params oldState@MockChainState{mcsEnv, mcsPoolState} tx context = C.shelleyBasedEraConstraints @era C.shelleyBasedEra $ do
   (newMempool, vtx) <- first ApplyTxFailure (Cardano.Ledger.Shelley.API.applyTx (Defaults.globals params) mcsEnv mcsPoolState tx)
   return (oldState & poolState .~ newMempool & over transactions ((vtx, context) :), vtx)

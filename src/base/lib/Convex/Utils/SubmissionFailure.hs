@@ -28,7 +28,7 @@ module Convex.Utils.SubmissionFailure (
 import Cardano.Chain.Common (AddrAttributes (..), AddrType (..), Address (..), Attributes (..), HDAddressPayload (..), NetworkMagic (..), UnparsedFields (..))
 import Cardano.Crypto.DSIGN qualified as DSIGN
 import Cardano.Crypto.Hash (hashFromTextAsHex)
-import Cardano.Ledger.Address (Addr (..), BootstrapAddress (..), RewardAccount (..), Withdrawals (..))
+import Cardano.Ledger.Address (AccountAddress, Addr (..), BootstrapAddress (..), Withdrawals (..), pattern RewardAccount)
 import Cardano.Ledger.Allegra.Rules qualified as AllegraRules (AllegraUtxoPredFailure (..))
 import Cardano.Ledger.Allegra.Scripts (ValidityInterval (..))
 import Cardano.Ledger.Alonzo.Plutus.Context (ContextError)
@@ -39,12 +39,14 @@ import Cardano.Ledger.Alonzo.Rules qualified as AlonzoRules (AlonzoUtxoPredFailu
 import Cardano.Ledger.Alonzo.Scripts (AlonzoEraScript (..), AlonzoPlutusPurpose (..), AlonzoScript (..), AsItem (..), AsIx (..), PlutusScript)
 import Cardano.Ledger.Alonzo.Tx (IsValid (..))
 import Cardano.Ledger.Alonzo.TxOut (AlonzoTxOut (..))
+import Cardano.Ledger.Babbage qualified as Babbage
 import Cardano.Ledger.Babbage.Rules qualified as BabbageRules (BabbageUtxoPredFailure (..), BabbageUtxowPredFailure (..))
 import Cardano.Ledger.Babbage.TxInfo (BabbageContextError (..))
 import Cardano.Ledger.Babbage.TxOut (BabbageTxOut (..))
 import Cardano.Ledger.BaseTypes (CertIx (..), Mismatch (..), Network (..), ProtVer (..), StrictMaybe (SNothing), TxIx (..))
 import Cardano.Ledger.Binary.Version (mkVersion)
 import Cardano.Ledger.Coin (Coin (..), DeltaCoin (..))
+import Cardano.Ledger.Conway qualified as Conway
 import Cardano.Ledger.Conway.Governance (ProposalProcedure, VotingProcedures (..))
 import Cardano.Ledger.Conway.Rules (ConwayLedgerPredFailure (..), PredicateFailure)
 import Cardano.Ledger.Conway.Rules qualified as ConwayRules (ConwayUtxoPredFailure (..), ConwayUtxosPredFailure (..), ConwayUtxowPredFailure (..))
@@ -70,7 +72,7 @@ import Cardano.Ledger.Plutus.Data (BinaryData, Datum (..), makeBinaryData)
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..), ExUnits' (..))
 import Cardano.Ledger.Plutus.Language (Language (..), Plutus (..), PlutusBinary (..), asSLanguage, withSLanguage)
 import Cardano.Ledger.Plutus.TxInfo (TxOutSource (..))
-import Cardano.Ledger.Shelley.API (ApplyTxError (ApplyTxError))
+import Cardano.Ledger.Shelley.API (ApplyTxError)
 import Cardano.Ledger.Shelley.Rules (ShelleyLedgerPredFailure (..), ShelleyPpupPredFailure (..), VotingPeriod (..))
 import Cardano.Ledger.Shelley.Rules qualified as ShelleyRules (ShelleyUtxoPredFailure (..), ShelleyUtxowPredFailure (..))
 import Cardano.Ledger.Shelley.TxOut (ShelleyTxOut (..))
@@ -93,9 +95,14 @@ import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Short qualified as SBS
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.NonEmpty (NonEmptyMap)
+import Data.Map.NonEmpty qualified as NonEmptyMap
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.OSet.Strict qualified as OSet
+import Data.Set (Set)
+import Data.Set.NonEmpty (NonEmptySet)
+import Data.Set.NonEmpty qualified as NonEmptySet
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -243,15 +250,19 @@ extractLedgerErrors era = \case
   TxSubmitFail (TxCmdTxSubmitValidationError (TxValidationErrorInCardanoMode shelleyErr)) ->
     case (stveEra shelleyErr, era) of
       (ShelleyBasedEraConway, C.ShelleyBasedEraConway) ->
-        fmap ApplyTxFailure $ wrap $ mapMaybe (readMaybe . T.unpack) (stveErrors shelleyErr)
+        fmap ApplyTxFailure $ wrapConway $ mapMaybe (readMaybe . T.unpack) (stveErrors shelleyErr)
       (ShelleyBasedEraBabbage, C.ShelleyBasedEraBabbage) ->
-        fmap ApplyTxFailure $ wrap $ mapMaybe (readMaybe . T.unpack) (stveErrors shelleyErr)
+        fmap ApplyTxFailure $ wrapBabbage $ mapMaybe (readMaybe . T.unpack) (stveErrors shelleyErr)
       _ -> Just EraMismatchError
   _ -> Nothing
  where
-  wrap :: [PredicateFailure (EraRule "LEDGER" (C.ShelleyLedgerEra era))] -> Maybe (ApplyTxError (C.ShelleyLedgerEra era))
-  wrap [] = Nothing
-  wrap (e : es) = Just $ ApplyTxError (e :| es)
+  wrapBabbage :: [ShelleyLedgerPredFailure (C.ShelleyLedgerEra C.BabbageEra)] -> Maybe (ApplyTxError (C.ShelleyLedgerEra C.BabbageEra))
+  wrapBabbage [] = Nothing
+  wrapBabbage (e : es) = Just $ Babbage.BabbageApplyTxError (e :| es)
+
+  wrapConway :: [ConwayLedgerPredFailure (C.ShelleyLedgerEra C.ConwayEra)] -> Maybe (ApplyTxError (C.ShelleyLedgerEra C.ConwayEra))
+  wrapConway [] = Nothing
+  wrapConway (e : es) = Just $ Conway.ConwayApplyTxError (e :| es)
 
 --------------------------------------------------------------------------------
 -- Read instance parsing utilities
@@ -261,6 +272,18 @@ type Parser a = ReadP a
 
 readP :: (Read a) => Parser a
 readP = readS_to_P reads
+
+instance (Read a, Ord a) => Read (NonEmptySet a) where
+  readsPrec _ = readP_to_S $ tryParens $ do
+    ident "NonEmptySet"
+    set <- readP
+    maybe pfail pure (NonEmptySet.fromSet (set :: Set a))
+
+instance (Read k, Ord k, Read v) => Read (NonEmptyMap k v) where
+  readsPrec _ = readP_to_S $ tryParens $ do
+    ident "NonEmptyMap"
+    map' <- readP
+    maybe pfail pure (NonEmptyMap.fromMap (map' :: Map.Map k v))
 
 ident :: String -> Parser ()
 ident name = string name *> skipSpaces
@@ -754,7 +777,7 @@ instance Read Addr where
         con3 Addr "Addr"
           <|> con1 AddrBootstrap "AddrBootstrap"
 
-instance Read RewardAccount where
+instance Read AccountAddress where
   readsPrec _ = readP_to_S $ tryParens $ do
     (network, cred) <-
       record2

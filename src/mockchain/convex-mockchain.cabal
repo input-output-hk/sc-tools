@@ -75,7 +75,7 @@ library
     , cardano-ledger-shelley
     , cardano-slotting
     , ouroboros-consensus
-    , ouroboros-consensus-cardano
+    , ouroboros-consensus:cardano
     , plutus-core
     , plutus-ledger-api
     , plutus-tx

@@ -14,8 +14,8 @@ repository cardano-haskell-packages
     d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
 
 index-state:
-  , hackage.haskell.org 2026-02-09T00:00:00Z
-  , cardano-haskell-packages 2026-02-09T00:00:00Z
+  , hackage.haskell.org 2026-05-04T12:54:40Z
+  , cardano-haskell-packages 2026-05-03T22:28:43Z
 
 -- You never, ever, want this.
 write-ghc-environment-files: never
@@ -24,9 +24,21 @@ test-show-details: direct
 tests: True
 
 -- GHC 9.10.3 ships with containers 0.7, but some deps still require ^>= 0.6
--- cardano-api 10.23.0.0 requires plutus-core/plutus-ledger-api ^>=1.57
+-- cardano-api 11.0.0.0 requires plutus-core/plutus-ledger-api ^>=1.63
 allow-newer:
   maestro-sdk:containers
+  , servant-multipart-client:random
+
+constraints:
+  cardano-node ==11.0.0
+  , aeson ==2.2.4.1
+  , blockio +serialblockio
+  , blockfrost-client ==0.13.0.0
+  , blockfrost-client-core ==0.8.0.0
+  , io-classes ==1.8.0.1
+  , plutus-core ==1.63.0.0
+  , plutus-ledger-api ==1.63.0.0
+  , plutus-tx ==1.63.0.0
 
 packages:
   src/base

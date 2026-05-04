@@ -44,13 +44,13 @@ library
 
   hs-source-dirs:  lib
   build-depends:
-    , base                         >=4.14      && <4.22
-    , cardano-api                  ==10.23.0.0
+    , base                         >=4.14     && <4.22
+    , cardano-api                  ==11.0.0.0
     , cardano-ledger-core
     , cardano-ledger-shelley
     , containers
     , lens
     , ordered-containers
-    , ouroboros-consensus-cardano
+    , ouroboros-consensus:cardano
     , plutus-ledger-api
     , plutus-tx

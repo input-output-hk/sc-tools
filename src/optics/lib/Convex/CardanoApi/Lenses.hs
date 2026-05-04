@@ -506,10 +506,10 @@ _TxOutDatumInline = prism' from to
   from :: C.HashableScriptData -> TxOutDatum ctx era
   from cd = C.TxOutDatumInline C.babbageBasedEra cd
 
-_ShelleyAddress :: (C.IsShelleyBasedEra era) => Prism' (C.AddressInEra era) (Shelley.Network, Credential.PaymentCredential, Credential.StakeReference)
+_ShelleyAddress :: (C.IsShelleyBasedEra era) => Prism' (C.AddressInEra era) (Shelley.Network, Credential.Credential Keys.Payment, Credential.StakeReference)
 _ShelleyAddress = prism' from to
  where
-  to :: C.AddressInEra era -> Maybe (Shelley.Network, Credential.PaymentCredential, Credential.StakeReference)
+  to :: C.AddressInEra era -> Maybe (Shelley.Network, Credential.Credential Keys.Payment, Credential.StakeReference)
   to x = case x of
     (C.AddressInEra (C.ShelleyAddressInEra _era) (C.ShelleyAddress ntw pmt stakeRef)) -> Just (ntw, pmt, stakeRef)
     (C.AddressInEra (C.ByronAddressInAnyEra) _) -> Nothing
@@ -522,7 +522,7 @@ _PaymentCredentialByKey = prism' from to
   to (C.PaymentCredentialByKey k) = Just k
   to _ = Nothing
 
-_ShelleyPaymentCredentialByKey :: Prism' (Credential.PaymentCredential) (Keys.KeyHash 'Keys.Payment)
+_ShelleyPaymentCredentialByKey :: Prism' (Credential.Credential Keys.Payment) (Keys.KeyHash Keys.Payment)
 _ShelleyPaymentCredentialByKey = prism' from to
  where
   from = Credential.KeyHashObj
@@ -536,7 +536,7 @@ _PaymentCredentialByScript = prism' from to
   to (C.PaymentCredentialByScript k) = Just k
   to C.PaymentCredentialByKey{} = Nothing
 
-_ShelleyPaymentCredentialByScript :: Prism' (Credential.PaymentCredential) (Hashes.ScriptHash)
+_ShelleyPaymentCredentialByScript :: Prism' (Credential.Credential Keys.Payment) (Hashes.ScriptHash)
 _ShelleyPaymentCredentialByScript = prism' from to
  where
   from = Credential.ScriptHashObj
@@ -616,17 +616,17 @@ _AddressInEra = prism' from to
   to _ = Nothing
   from = C.AddressInEra (C.ShelleyAddressInEra C.shelleyBasedEra)
 
-_Address :: Iso' (Address ShelleyAddr) (Shelley.Network, Credential.PaymentCredential, Credential.StakeReference)
+_Address :: Iso' (Address ShelleyAddr) (Shelley.Network, Credential.Credential Keys.Payment, Credential.StakeReference)
 _Address = iso from to
  where
-  from :: Address ShelleyAddr -> (Shelley.Network, Credential.PaymentCredential, Credential.StakeReference)
+  from :: Address ShelleyAddr -> (Shelley.Network, Credential.Credential Keys.Payment, Credential.StakeReference)
   from (C.ShelleyAddress n p s) = (n, p, s)
   to (n, p, s) = C.ShelleyAddress n p s
 
-_KeyHash :: Iso' (Keys.KeyHash 'Keys.Payment) (C.Hash C.PaymentKey)
+_KeyHash :: Iso' (Keys.KeyHash Keys.Payment) (C.Hash C.PaymentKey)
 _KeyHash = iso from to
  where
-  from :: Keys.KeyHash 'Keys.Payment -> C.Hash C.PaymentKey
+  from :: Keys.KeyHash Keys.Payment -> C.Hash C.PaymentKey
   from hash = C.PaymentKeyHash hash
   to (C.PaymentKeyHash h) = h
 
@@ -648,10 +648,10 @@ _PlutusPubKeyHash = prism' from to
   to :: PubKeyHash -> Maybe (C.Hash C.PaymentKey)
   to (PubKeyHash h) = either (const Nothing) Just $ C.deserialiseFromRawBytes (C.proxyToAsType $ Proxy @(C.Hash C.PaymentKey)) $ PlutusTx.fromBuiltin h
 
-_PaymentCredential :: Iso' C.PaymentCredential (Credential.PaymentCredential)
+_PaymentCredential :: Iso' C.PaymentCredential (Credential.Credential Keys.Payment)
 _PaymentCredential = iso from to
  where
-  from :: C.PaymentCredential -> Credential.PaymentCredential
+  from :: C.PaymentCredential -> Credential.Credential Keys.Payment
   from (C.PaymentCredentialByKey (C.PaymentKeyHash kh)) = Credential.KeyHashObj kh
   from (C.PaymentCredentialByScript sh) = Credential.ScriptHashObj (C.toShelleyScriptHash sh)
 

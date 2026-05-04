@@ -144,12 +144,11 @@ streamUtxos a =
 
 -- | Variant of 'Client.getAddressUtxos' that doesn't error when there are no results (no UTxOs)
 getAddressUtxos' :: (MonadIO m) => Types.Address -> Types.Paged -> Types.SortOrder -> BlockfrostT m [Client.AddressUtxo]
-getAddressUtxos' addr paged order = BlockfrostT $ lift $ do
-  (_, proj) <- BlockfrostClientT ask
-  Types.runBlockfrostClientT proj (Client.getAddressUtxos' addr paged order)
+getAddressUtxos' addr paged order =
+  Types.tryError (Client.getAddressUtxos' addr paged order)
     >>= \case
       Left Types.BlockfrostNotFound{} -> pure []
-      Left err -> BlockfrostClientT (throwError err)
+      Left err -> throwError err
       Right k -> pure k
 
 -- | Run the 'BlockfrostT' transformer using the given blockfrost 'Project'

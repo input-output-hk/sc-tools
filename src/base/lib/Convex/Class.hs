@@ -75,6 +75,9 @@ module Convex.Class (
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Alonzo.Plutus.Evaluate (CollectError)
+import Cardano.Ledger.Coin (
+  compactCoinOrError,
+ )
 import Cardano.Ledger.Core qualified as Core
 import Cardano.Ledger.Plutus.Evaluate (PlutusWithContext (..))
 import Cardano.Ledger.Shelley.API (
@@ -92,9 +95,6 @@ import Cardano.Ledger.Shelley.LedgerState (
   lsCertStateL,
  )
 import Cardano.Ledger.State (accountsL, addToBalanceAccounts)
-import Cardano.Ledger.UMap (
-  compactCoinOrError,
- )
 import Cardano.Slotting.Time (
   SlotLength,
   SystemStart,
@@ -164,7 +164,6 @@ import Ouroboros.Consensus.HardFork.History (
   slotToSlotLength,
  )
 import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as T
-import Ouroboros.Network.Protocol.LocalTxSubmission.Type (SubmitResult (..))
 import PlutusLedgerApi.V1 qualified as PV1
 import PlutusTx.Coverage (CoverageData)
 import Test.QuickCheck.Monadic (PropertyM)
@@ -357,7 +356,7 @@ data MockChainState era
   = MockChainState
   { mcsEnv :: MempoolEnv (C.ShelleyLedgerEra era)
   , mcsPoolState :: MempoolState (C.ShelleyLedgerEra era)
-  , mcsTransactions :: [(Validated (Core.Tx (C.ShelleyLedgerEra era)), [PlutusWithContext])]
+  , mcsTransactions :: [(Validated (Core.Tx Core.TopTx (C.ShelleyLedgerEra era)), [PlutusWithContext])]
   -- ^ Transactions that were submitted to the mockchain and validated
   , mcsFailedTransactions :: [(C.Tx era, SendTxError era)]
   -- ^ Transactions that were submitted to the mockchain, but failed with a validation error
@@ -576,12 +575,14 @@ instance (MonadIO m, C.IsShelleyBasedEra era) => MonadBlockchain era (MonadBlock
     info <- ask
     result <- liftIO (C.submitTxToNodeLocal info (C.TxInMode C.shelleyBasedEra tx))
     pure $ case result of
-      SubmitSuccess ->
+      C.TxSubmitSuccess ->
         Right txId
-      SubmitFail (C.TxValidationErrorInCardanoMode (C.ShelleyTxValidationError (testEquality (C.shelleyBasedEra @era) -> Just Refl) reason)) ->
+      C.TxSubmitFail (C.TxValidationErrorInCardanoMode (C.ShelleyTxValidationError (testEquality (C.shelleyBasedEra @era) -> Just Refl) reason)) ->
         Left $ ApplyTxFailure reason
-      SubmitFail _ ->
+      C.TxSubmitFail _ ->
         Left EraMismatchError
+      C.TxSubmitError err ->
+        Left $ OtherProviderError $ Text.pack $ show err
 
   utxoByTxIn txIns =
     runQuery' (C.QueryInEra (C.QueryInShelleyBasedEra C.shelleyBasedEra (C.QueryUTxO (C.QueryUTxOByTxIn txIns))))
