@@ -75,6 +75,7 @@ import Cardano.Api qualified as C
 import Cardano.Ledger.Alonzo.UTxO qualified as L
 import Cardano.Ledger.Core qualified
 import Cardano.Ledger.Credential qualified as Shelley
+import Cardano.Ledger.Keys qualified as LedgerKeys
 import Cardano.Slotting.EpochInfo.API (
   epochInfoSlotToUTCTime,
   hoistEpochInfo,
@@ -266,7 +267,7 @@ readKeyFromFile source = do
         Right k -> pure k
     Right k -> pure k
 
-toShelleyPaymentCredential :: PaymentCredential -> Shelley.PaymentCredential
+toShelleyPaymentCredential :: PaymentCredential -> Shelley.Credential LedgerKeys.Payment
 toShelleyPaymentCredential (PaymentCredentialByKey (C.PaymentKeyHash kh)) =
   Shelley.KeyHashObj kh
 toShelleyPaymentCredential (PaymentCredentialByScript sh) =
