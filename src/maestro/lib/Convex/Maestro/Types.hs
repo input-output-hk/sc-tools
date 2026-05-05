@@ -45,9 +45,7 @@ import Cardano.Ledger.Babbage.PParams qualified as L
 import Cardano.Ledger.BaseTypes qualified as BaseTypes
 import Cardano.Ledger.Binary qualified as L
 import Cardano.Ledger.Binary.Plain (decodeFullDecoder)
-import Cardano.Ledger.Coin qualified as L
 import Cardano.Ledger.Conway.PParams qualified as L
-import Cardano.Ledger.Core qualified as L
 import Cardano.Ledger.Plutus.CostModels qualified as CostModels
 import Cardano.Ledger.Plutus.Language qualified as Plutus.Language
 import Cardano.Slotting.Slot qualified as CSlot
@@ -151,9 +149,6 @@ toCardanoApiCoinCompact = L.toCompactPartial . toCardanoApiCoin
 
 toCardanoApiBoundedRational :: (HasCallStack, Typeable r, BaseTypes.BoundedRational r) => MaestroRational -> r
 toCardanoApiBoundedRational (MaestroRational r) = C.unsafeBoundedRational r
-
-toLovelace :: AsAda -> C.Lovelace
-toLovelace (AsAda (AsLovelace l)) = L.Coin . toInteger $ l
 
 toCardanoApiProtVer :: ProtocolVersion -> L.ProtVer
 toCardanoApiProtVer ProtocolVersion{protocolVersionMajor, protocolVersionMinor} =

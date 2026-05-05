@@ -107,10 +107,8 @@ import Cardano.Ledger.Babbage.PParams qualified as L
 import Cardano.Ledger.BaseTypes qualified as BaseTypes
 import Cardano.Ledger.Binary.Encoding (EncCBOR)
 import Cardano.Ledger.Binary.Version qualified as Version
-import Cardano.Ledger.Coin qualified as L
 import Cardano.Ledger.Conway.PParams qualified as L
 import Cardano.Ledger.Core (PParams)
-import Cardano.Ledger.Core qualified as L
 import Cardano.Ledger.Plutus.CostModels qualified as CostModels
 import Cardano.Ledger.Plutus.Language qualified as Plutus.Language
 import Cardano.Slotting.Slot (EpochSize (..))
