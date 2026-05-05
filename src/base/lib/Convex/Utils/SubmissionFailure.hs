@@ -709,6 +709,13 @@ instance Read (Credential r) where
         con1 KeyHashObj "KeyHashObj"
           <|> con1 ScriptHashObj "ScriptHashObj"
 
+instance Read AccountId where
+  readsPrec _ =
+    readP_to_S $
+      tryParens $
+        (AccountId <$> record1 "AccountId" "unAccountId" readP)
+          <|> con1 AccountId "AccountId"
+
 instance Read AddrType where
   readsPrec _ =
     readP_to_S $
@@ -778,13 +785,25 @@ instance Read Addr where
           <|> con1 AddrBootstrap "AddrBootstrap"
 
 instance Read AccountAddress where
-  readsPrec _ = readP_to_S $ tryParens $ do
-    (network, cred) <-
-      record2
-        "RewardAccount"
-        ("raNetwork", readP)
-        ("raCredential", readP)
-    pure (AccountAddress network (AccountId cred))
+  readsPrec _ =
+    readP_to_S $
+      tryParens $
+        currentAccountAddress <|> legacyRewardAccount
+   where
+    currentAccountAddress = do
+      (network, accountId) <-
+        record2
+          "AccountAddress"
+          ("aaNetworkId", readP)
+          ("aaId", readP)
+      pure (AccountAddress network accountId)
+    legacyRewardAccount = do
+      (network, cred) <-
+        record2
+          "RewardAccount"
+          ("raNetwork", readP)
+          ("raCredential", readP)
+      pure (AccountAddress network (AccountId cred))
 
 instance Read Withdrawals where
   readsPrec _ =

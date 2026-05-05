@@ -88,6 +88,7 @@ import Ouroboros.Consensus.Shelley.Ledger.Block qualified as Consensus
 import System.FilePath ((</>))
 import Test.Tasty (
   defaultMain,
+  localOption,
   testGroup,
  )
 import Test.Tasty.HUnit (
@@ -96,23 +97,25 @@ import Test.Tasty.HUnit (
   assertFailure,
   testCase,
  )
+import Test.Tasty.Runners (NumThreads (NumThreads))
 
 main :: IO ()
 main = do
   setLocaleEncoding utf8
   defaultMain $
-    testGroup
-      "test"
-      [ testCase "cardano-node is available" checkCardanoNode
-      , testCase "start local node" startLocalNode
-      , testCase "check transition to conway era and protocol version 11" checkTransitionToConway
-      , LatestEraTransitionSpec.tests
-      , testCase "make a payment" makePayment
-      , testCase "start local stake pool node" startLocalStakePoolNode
-      , testCase "stake pool registration" registeredStakePoolNode
-      , testCase "stake pool rewards" stakePoolRewards
-      , testCase "change max tx size" changeMaxTxSize
-      ]
+    localOption (NumThreads 1) $
+      testGroup
+        "test"
+        [ testCase "cardano-node is available" checkCardanoNode
+        , testCase "start local node" startLocalNode
+        , testCase "check transition to conway era and protocol version 11" checkTransitionToConway
+        , LatestEraTransitionSpec.tests
+        , testCase "make a payment" makePayment
+        , testCase "start local stake pool node" startLocalStakePoolNode
+        , testCase "stake pool registration" registeredStakePoolNode
+        , testCase "stake pool rewards" stakePoolRewards
+        , testCase "change max tx size" changeMaxTxSize
+        ]
 
 checkCardanoNode :: IO ()
 checkCardanoNode = do
