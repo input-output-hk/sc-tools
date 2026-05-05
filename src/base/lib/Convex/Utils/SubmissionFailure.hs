@@ -1204,6 +1204,8 @@ instance (Read (PredicateFailure (EraRule "UTXOW" era))) => Read (ConwayLedgerPr
           <|> con1 ConwayTreasuryValueMismatch "ConwayTreasuryValueMismatch"
           <|> con1 ConwayTxRefScriptsSizeTooBig "ConwayTxRefScriptsSizeTooBig"
           <|> con1 ConwayMempoolFailure "ConwayMempoolFailure"
+          <|> con1 ConwayWithdrawalsMissingAccounts "ConwayWithdrawalsMissingAccounts"
+          <|> con1 ConwayIncompleteWithdrawals "ConwayIncompleteWithdrawals"
 
 -- Dijkstra era instance - commented out until cardano-ledger-dijkstra is available
 -- instance Read (DijkstraLedgerPredFailure era) where
