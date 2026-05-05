@@ -28,7 +28,7 @@ module Convex.Utils.SubmissionFailure (
 import Cardano.Chain.Common (AddrAttributes (..), AddrType (..), Address (..), Attributes (..), HDAddressPayload (..), NetworkMagic (..), UnparsedFields (..))
 import Cardano.Crypto.DSIGN qualified as DSIGN
 import Cardano.Crypto.Hash (hashFromTextAsHex)
-import Cardano.Ledger.Address (AccountAddress, Addr (..), BootstrapAddress (..), Withdrawals (..), pattern RewardAccount)
+import Cardano.Ledger.Address (AccountAddress (..), AccountId (..), Addr (..), BootstrapAddress (..), Withdrawals (..))
 import Cardano.Ledger.Allegra.Rules qualified as AllegraRules (AllegraUtxoPredFailure (..))
 import Cardano.Ledger.Allegra.Scripts (ValidityInterval (..))
 import Cardano.Ledger.Alonzo.Plutus.Context (ContextError)
@@ -784,7 +784,7 @@ instance Read AccountAddress where
         "RewardAccount"
         ("raNetwork", readP)
         ("raCredential", readP)
-    pure (RewardAccount network cred)
+    pure (AccountAddress network (AccountId cred))
 
 instance Read Withdrawals where
   readsPrec _ =
