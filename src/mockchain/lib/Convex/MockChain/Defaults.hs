@@ -32,13 +32,11 @@ import Cardano.Ledger.Alonzo.PParams qualified as L
 import Cardano.Ledger.Babbage.PParams (DowngradeBabbagePParams (..))
 import Cardano.Ledger.Babbage.PParams qualified as L
 import Cardano.Ledger.BaseTypes (ProtVer, boundRational)
-import Cardano.Ledger.Coin qualified as L
 import Cardano.Ledger.Conway.PParams qualified as L
 import Cardano.Ledger.Core (
   PParams,
   downgradePParams,
  )
-import Cardano.Ledger.Core qualified as L
 import Cardano.Ledger.Plutus.CostModels qualified as CostModels
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Cardano.Ledger.Plutus.Language (Language (..))
