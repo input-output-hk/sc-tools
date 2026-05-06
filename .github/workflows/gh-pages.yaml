@@ -37,7 +37,34 @@ jobs:
       - name: Build haddocks
         run: |
           cabal update
-          cabal haddock-project --local --output=haddocks
+          rm -rf haddocks
+          # Do not build dependency docs here; haddock-project currently fails in ouroboros-network.
+          cabal haddock all \
+            --disable-tests \
+            --disable-benchmarks \
+            --disable-documentation \
+            --haddock-output-dir=haddocks
+          cat > haddocks/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <title>sc-tools Haddocks</title>
+            </head>
+            <body>
+              <h1>sc-tools Haddocks</h1>
+              <ul>
+          EOF
+          for dir in haddocks/*; do
+            [ -d "$dir" ] || continue
+            package="$(basename "$dir")"
+            printf '    <li><a href="%s/">%s</a></li>\n' "$package" "$package" >> haddocks/index.html
+          done
+          cat >> haddocks/index.html <<'EOF'
+              </ul>
+            </body>
+          </html>
+          EOF
 
       - name: Upload GH pages artifact
         uses: actions/upload-pages-artifact@v3.0.1
