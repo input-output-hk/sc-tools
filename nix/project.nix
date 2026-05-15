@@ -31,9 +31,9 @@ let
   };
 
   # Create a project for a specific GHC version (lazy - only evaluated when accessed)
-  mkProject = compiler-nix-name:
+  mkProject = compiler-nix-name: extraConfig:
     pkgs.haskell-nix.cabalProject' ({ config, pkgs, ... }:
-      commonConfig // {
+      commonConfig // extraConfig // {
         inherit compiler-nix-name;
       }
     );
@@ -42,8 +42,10 @@ in
 
 {
   # Each project is created lazily - only evaluated when accessed
-  ghc966 = mkProject "ghc966";
-  ghc9103 = mkProject "ghc9103";
+  ghc966 = mkProject "ghc966" {
+    shell.withHoogle = false;
+  };
+  ghc9103 = mkProject "ghc9103" {};
   #ghc984 = mkProject "ghc984";
   #ghc9122 = mkProject "ghc9122";
 }
