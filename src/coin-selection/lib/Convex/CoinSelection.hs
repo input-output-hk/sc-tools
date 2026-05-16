@@ -74,7 +74,7 @@ import Cardano.Api.Experimental (Certificate (..))
 import Cardano.Api.Ledger (getVKeyWitnessTxCert)
 import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Tx (substituteExecutionUnits)
-import Cardano.Ledger.Core (PParams (..), hkdKeyDepositL)
+import Cardano.Ledger.Core (ppKeyDepositL)
 import Cardano.Ledger.Keys qualified as Keys
 import Cardano.Ledger.Shelley.API (
   Coin (..),
@@ -143,7 +143,6 @@ import Data.Aeson (FromJSON (..), Options (sumEncoding), SumEncoding (..), ToJSO
 import Data.Aeson.TH (defaultOptions, deriveFromJSON)
 import Data.Bifunctor (Bifunctor (..))
 import Data.Default (Default (..))
-import Data.Functor.Identity (Identity)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
@@ -491,8 +490,8 @@ balanceChanges (C.UTxO lookups) body = do
   pure (outputs <> inputs)
 
 unregBalance :: forall era. (L.EraPParams (C.ShelleyLedgerEra era)) => C.LedgerProtocolParameters era -> TxBodyContent BuildTx era -> Map.Map C.StakeCredential Coin
-unregBalance (C.unLedgerProtocolParameters -> PParams phkd) txbodycontent =
-  let (deposit :: Coin) = view (hkdKeyDepositL @_ @Identity) phkd
+unregBalance (C.unLedgerProtocolParameters -> pparams) txbodycontent =
+  let (deposit :: Coin) = view (ppKeyDepositL @(C.ShelleyLedgerEra era)) pparams
       certs = txbodycontent ^. L.txCertificates
 
       toUnregCert
@@ -845,7 +844,7 @@ spentTxIns (view L.txIns -> inputs) =
 lookupTxIns :: (MonadBlockchain era m) => Set C.TxIn -> m (C.UTxO era)
 lookupTxIns = utxoByTxIn
 
-keyWitnesses :: (MonadBlockchain era m, C.IsShelleyBasedEra era) => C.TxBodyContent v era -> m (Set (Keys.KeyHash 'Keys.Payment))
+keyWitnesses :: (MonadBlockchain era m, C.IsShelleyBasedEra era) => C.TxBodyContent v era -> m (Set (Keys.KeyHash Keys.Payment))
 keyWitnesses (requiredTxIns -> inputs) = do
   C.UTxO utxos <- utxoByTxIn inputs
   pure $ Set.fromList $ mapMaybe (publicKeyCredential . snd) $ Map.toList utxos
@@ -884,10 +883,10 @@ requiredSignatureCount txBuilder = inAlonzo @era $ do
 data CertificateKeyWitness era
   = CertificateStakeKey (KeyHash Staking)
   | CertificateStakePoolKey (KeyHash StakePool)
-  | CertificateGenesisKey (KeyHash Genesis)
+  | CertificateGenesisKey (KeyHash GenesisRole)
   deriving stock (Eq, Ord)
 
-publicKeyCredential :: (C.IsShelleyBasedEra era) => C.TxOut v era -> Maybe (Keys.KeyHash 'Keys.Payment)
+publicKeyCredential :: (C.IsShelleyBasedEra era) => C.TxOut v era -> Maybe (Keys.KeyHash Keys.Payment)
 publicKeyCredential = preview (L._TxOut . _1 . L._ShelleyAddress . _2 . L._ShelleyPaymentCredentialByKey)
 
 spendPubKeyTxIn :: C.TxIn -> (C.TxIn, C.BuildTxWith C.BuildTx (C.Witness C.WitCtxTxIn era))

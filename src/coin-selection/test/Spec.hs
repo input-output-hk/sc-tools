@@ -14,10 +14,10 @@ import Cardano.Api.Experimental.Era qualified as Ex
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.BaseTypes (Mismatch (..))
+import Cardano.Ledger.Conway qualified as Conway
 import Cardano.Ledger.Conway.PParams qualified as Ledger
 import Cardano.Ledger.Conway.Rules qualified as Rules
 import Cardano.Ledger.Keys qualified as Keys
-import Cardano.Ledger.Shelley.API (ApplyTxError (..))
 import Control.Lens (view, (&), (.~), (^.), _3, _4)
 #if __GLASGOW_HASKELL__ < 910
 import Control.Monad (replicateM, void, when)
@@ -459,7 +459,7 @@ largeTransactionTest = do
   -- tx fails with default parameters
   runMockchain0IOWith Wallet.initialUTxOs Defaults.nodeParams (failOnError largeDatumTx) >>= \case
     (_, view failedTransactions -> [(_, err)]) -> case err of
-      ApplyTxFailure (ApplyTxError (Rules.ConwayUtxowFailure (Rules.UtxoFailure (Rules.MaxTxSizeUTxO (Mismatch 20_249 16384))) :| [])) -> pure ()
+      ApplyTxFailure (Conway.ConwayApplyTxError (Rules.ConwayUtxowFailure (Rules.UtxoFailure (Rules.MaxTxSizeUTxO (Mismatch 20_249 16384))) :| [])) -> pure ()
       _ -> fail $ "Unexpected failure. Expected 'MaxTxSizeUTxO', found " <> show err
     (_, length . view failedTransactions -> numFailed) -> fail $ "Expected one failed transaction, found " <> show numFailed
 

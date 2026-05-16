@@ -213,7 +213,7 @@ sendTxBlockfrost tx = do
   let cborTx = CBORString (BSL.fromStrict (serialiseToCBOR tx))
   conf <- getConf
   txHash <- liftEither id $ liftIO $ flip runReaderT conf $ C.runExceptT $ Client.unBlockfrostClientT $ submitTx cborTx
-  liftEither (Client.BlockfrostError . Text.pack . (<>) "sendTxBlockfrost: Parse tx hash failed") $
+  liftEither (Client.BlockfrostBadRequest . Text.pack . (<>) "sendTxBlockfrost: Parse tx hash failed") $
     pure $
       Types.toTxHash txHash
 
@@ -224,7 +224,7 @@ resolveTxIn :: (MonadBlockfrost m, MonadState BlockfrostCache m, MonadError Clie
 resolveTxIn txI@(TxIn txId (C.TxIx txIx)) = getOrRetrieve (txInputs . at txI) $ do
   utxos <-
     Types.resolveTx txId
-      >>= either (throwError . Client.BlockfrostError . Text.pack . show) (pure . fmap (second C.toCtxUTxOTxOut) . txnUtxos)
+      >>= either (throwError . Client.BlockfrostBadRequest . Text.pack . show) (pure . fmap (second C.toCtxUTxOTxOut) . txnUtxos)
   txInputs <>= Map.fromList utxos
   pure $ snd $ utxos !! fromIntegral txIx
 

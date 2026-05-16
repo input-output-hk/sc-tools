@@ -62,7 +62,7 @@ library
     , maestro-sdk
     , mtl
     , ouroboros-consensus
-    , ouroboros-consensus-cardano
+    , ouroboros-consensus:cardano
     , servant-client
     , sop-extras
     , streaming

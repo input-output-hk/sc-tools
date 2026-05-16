@@ -89,7 +89,7 @@ eraHistory =
  where
   -- \$ Ouroboros.summaryWithExactly list)
 
-  one = nonEmptyHead $ Ouroboros.getSummary $ Ouroboros.neverForksSummary epochSize slotLength window
+  one = nonEmptyHead $ Ouroboros.getSummary $ Ouroboros.neverForksSummary epochSize slotLength window Ouroboros.NoPerasEnabled
   list = Exactly $ K one :* K one :* K one :* K one :* K one :* K one :* K one :* K one :* Nil
 
   -- NB: Not sure what to put here. Looks like this is usually 2 * max-rollbacks.
@@ -116,12 +116,12 @@ protocolParameters =
             & L.hkdMaxBHSizeL .~ 1_100
             & L.hkdMaxBBSizeL .~ 90_112
             & L.hkdMaxTxSizeL .~ 16_384
-            & L.hkdMinFeeAL .~ 44
-            & L.hkdMinFeeBL .~ 155_381
-            & L.hkdKeyDepositL .~ 2_000_000
+            & L.hkdTxFeePerByteL .~ L.CoinPerByte (L.toCompactPartial (Coin 44))
+            & L.hkdTxFeeFixedCompactL .~ L.toCompactPartial (Coin 155_381)
+            & L.hkdKeyDepositCompactL .~ L.toCompactPartial (Coin 2_000_000)
             & L.hkdPoolDepositCompactL .~ L.toCompactPartial 500_000_000
             & L.hkdDRepDepositCompactL .~ L.toCompactPartial 500_000_000
-            & L.hkdCoinsPerUTxOByteL .~ L.CoinPerByte 4_310
+            & L.hkdCoinsPerUTxOByteL .~ L.CoinPerByte (L.toCompactPartial (Coin 4_310))
             & L.hkdPricesL
               .~ L.Prices
                 { L.prMem = C.unsafeBoundedRational (577 % 10_000)
@@ -132,10 +132,10 @@ protocolParameters =
             & L.hkdMaxValSizeL .~ 5_000
             & L.hkdCollateralPercentageL .~ 150
             & L.hkdMaxCollateralInputsL .~ 3
-            & L.hkdMinPoolCostL .~ 200_000
+            & L.hkdMinPoolCostCompactL .~ L.toCompactPartial (Coin 200_000)
             & L.hkdCostModelsL .~ CostModels.mkCostModels (Map.fromList [(PlutusV1, v1CostModel), (PlutusV2, v2CostModel), (PlutusV3, v3CostModel)])
             & L.hkdMinFeeRefScriptCostPerByteL .~ C.unsafeBoundedRational 15
-            & L.hkdMinPoolCostL .~ 170_000_000
+            & L.hkdMinPoolCostCompactL .~ L.toCompactPartial (Coin 170_000_000)
             & L.hkdEMaxL .~ L.EpochInterval 18
    in pparams
         & L.ppProtocolVersionL .~ latestProtVer
@@ -833,7 +833,7 @@ genesisDefaultsFromParams params@NodeParams{npNetworkId} =
   downgradeMary = downgradeAllegra . downgradePParams ()
 
   downgradeAlonzo :: PParams (C.ShelleyLedgerEra C.AlonzoEra) -> PParams (C.ShelleyLedgerEra C.ShelleyEra)
-  downgradeAlonzo = downgradeMary . downgradePParams DowngradeAlonzoPParams{dappMinUTxOValue = Coin 0}
+  downgradeAlonzo = downgradeMary . downgradePParams DowngradeAlonzoPParams{dappMinUTxOValue = L.toCompactPartial (Coin 0)}
 
   downgradeBabbage :: PParams (C.ShelleyLedgerEra C.BabbageEra) -> PParams (C.ShelleyLedgerEra C.ShelleyEra)
   downgradeBabbage = downgradeAlonzo . downgradePParams DowngradeBabbagePParams{dbppD = d, dbppExtraEntropy = C.Ledger.NeutralNonce}

@@ -73,7 +73,7 @@ library
     , cardano-ledger-shelley
     , cardano-slotting
     , iohk-monitoring
-    , ouroboros-consensus-cardano
+    , ouroboros-consensus:cardano
 
   build-depends:
     , aeson
@@ -116,17 +116,13 @@ test-suite convex-devnet-test
     , convex-coin-selection
     , convex-devnet
     , convex-mockchain
-    , convex-node-client
     , convex-wallet
 
   build-depends:
     , cardano-api
     , cardano-data
     , cardano-ledger-api
-    , cardano-ledger-core
     , cardano-ledger-shelley
-    , ouroboros-consensus-cardano
-    , ouroboros-consensus-protocol
     , plutus-core
     , plutus-ledger-api
 

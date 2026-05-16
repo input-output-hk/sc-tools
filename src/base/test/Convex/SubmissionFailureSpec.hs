@@ -5,7 +5,7 @@ module Convex.SubmissionFailureSpec where
 import Cardano.Api qualified as C
 import Cardano.Chain.Common (AddrAttributes (..), Address (..), Attributes (..))
 import Cardano.Crypto.DSIGN qualified as DSIGN
-import Cardano.Ledger.Address (Addr (..), BootstrapAddress (..), RewardAccount (..), Withdrawals (..))
+import Cardano.Ledger.Address (AccountAddress, Addr (..), BootstrapAddress (..), Withdrawals (..))
 import Cardano.Ledger.Allegra.Scripts (ValidityInterval (..))
 import Cardano.Ledger.Alonzo.Plutus.Evaluate (CollectError (..))
 import Cardano.Ledger.Alonzo.Plutus.TxInfo (AlonzoContextError (..))
@@ -184,7 +184,7 @@ prop_readBootstrapAddress = readTest
 prop_readAddr :: Addr -> Bool
 prop_readAddr = readTest
 
-prop_readRewardAccount :: RewardAccount -> Bool
+prop_readRewardAccount :: AccountAddress -> Bool
 prop_readRewardAccount = readTest
 
 prop_readWithdrawals :: Withdrawals -> Bool

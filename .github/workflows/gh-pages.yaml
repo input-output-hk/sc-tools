@@ -20,11 +20,11 @@ jobs:
         uses: input-output-hk/actions/base@latest
 
 
-      - uses: haskell-actions/setup@v2
+      - uses: haskell-actions/setup@v2.11.0
         id: cabal-setup
         with:
-          ghc-version: '9.6.6'
-          cabal-version: '3.10.3.0'
+          ghc-version: '9.10.3'
+          cabal-version: '3.16.1.0'
 
       - uses: actions/checkout@v4
 
@@ -32,12 +32,42 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ steps.cabal-setup.outputs.cabal-store }}
-          key: cabal-haddocks-${{ hashFiles('cabal.project') }}
+          key: cabal-haddocks-ghc-9.10.3-cabal-3.16.1.0-${{ hashFiles('cabal.project') }}
 
       - name: Build haddocks
         run: |
+          ghc --version
+          cabal --version
+          haddock --version
           cabal update
-          cabal haddock-project --local --output=haddocks
+          rm -rf haddocks
+          # Do not build dependency docs here; haddock-project currently fails in ouroboros-network.
+          cabal haddock all \
+            --disable-tests \
+            --disable-benchmarks \
+            --disable-documentation \
+            --haddock-output-dir=haddocks
+          cat > haddocks/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <title>sc-tools Haddocks</title>
+            </head>
+            <body>
+              <h1>sc-tools Haddocks</h1>
+              <ul>
+          EOF
+          for dir in haddocks/*; do
+            [ -d "$dir" ] || continue
+            package="$(basename "$dir")"
+            printf '    <li><a href="%s/">%s</a></li>\n' "$package" "$package" >> haddocks/index.html
+          done
+          cat >> haddocks/index.html <<'EOF'
+              </ul>
+            </body>
+          </html>
+          EOF
 
       - name: Upload GH pages artifact
         uses: actions/upload-pages-artifact@v3.0.1

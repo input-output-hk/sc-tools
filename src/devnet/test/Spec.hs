@@ -14,7 +14,6 @@ module Main where
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Api.PParams qualified as L
-import Cardano.Ledger.Block qualified as Ledger
 import Cardano.Ledger.Shelley.Genesis qualified as Ledger
 import Control.Concurrent (threadDelay)
 import Control.Lens (Contravariant (contramap), view)
@@ -51,11 +50,6 @@ import Convex.Devnet.Utils (
  )
 import Convex.Devnet.Wallet (WalletLog)
 import Convex.Devnet.Wallet qualified as W
-import Convex.NodeClient.Fold (
-  LedgerStateArgs (NoLedgerStateArgs),
-  foldClient,
- )
-import Convex.NodeClient.Types (runNodeClient)
 import Convex.NodeQueries (
   loadConnectInfo,
   queryProtocolParameters,
@@ -66,11 +60,6 @@ import Convex.NodeQueries qualified as Queries
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet qualified as W
 import Data.Aeson (FromJSON, ToJSON)
-import Data.IORef (
-  modifyIORef,
-  newIORef,
-  readIORef,
- )
 import Data.List (isInfixOf)
 import Data.ListMap qualified as LM
 import Data.Map qualified as Map
@@ -83,11 +72,10 @@ import GHC.IO.Encoding (
   setLocaleEncoding,
   utf8,
  )
-import Ouroboros.Consensus.Protocol.Praos.Header qualified as Consensus
-import Ouroboros.Consensus.Shelley.Ledger.Block qualified as Consensus
 import System.FilePath ((</>))
 import Test.Tasty (
   defaultMain,
+  localOption,
   testGroup,
  )
 import Test.Tasty.HUnit (
@@ -96,27 +84,29 @@ import Test.Tasty.HUnit (
   assertFailure,
   testCase,
  )
+import Test.Tasty.Runners (NumThreads (NumThreads))
 
 main :: IO ()
 main = do
   setLocaleEncoding utf8
   defaultMain $
-    testGroup
-      "test"
-      [ testCase "cardano-node is available" checkCardanoNode
-      , testCase "start local node" startLocalNode
-      , testCase "check transition to conway era and protocol version 11" checkTransitionToConway
-      , LatestEraTransitionSpec.tests
-      , testCase "make a payment" makePayment
-      , testCase "start local stake pool node" startLocalStakePoolNode
-      , testCase "stake pool registration" registeredStakePoolNode
-      , testCase "stake pool rewards" stakePoolRewards
-      , testCase "change max tx size" changeMaxTxSize
-      ]
+    localOption (NumThreads 1) $
+      testGroup
+        "test"
+        [ testCase "cardano-node is available" checkCardanoNode
+        , testCase "start local node" startLocalNode
+        , testCase "check transition to conway era and protocol version 11" checkTransitionToConway
+        , LatestEraTransitionSpec.tests
+        , testCase "make a payment" makePayment
+        , testCase "start local stake pool node" startLocalStakePoolNode
+        , testCase "stake pool registration" registeredStakePoolNode
+        , testCase "stake pool rewards" stakePoolRewards
+        , testCase "change max tx size" changeMaxTxSize
+        ]
 
 checkCardanoNode :: IO ()
 checkCardanoNode = do
-  let expectedVersion = "10.6.4"
+  let expectedVersion = "11.0.0"
   version <- getCardanoNodeVersion
   let isExpected = expectedVersion `isInfixOf` version
   unless isExpected (putStrLn version)
@@ -137,37 +127,17 @@ checkTransitionToConway = do
   showLogsOnFailure $ \tr -> do
     failAfter 10 $
       withTempDir "cardano-cluster" $ \tmp -> do
-        withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode@RunningNode{rnConnectInfo, rnNodeSocket, rnNodeConfigFile} -> do
+        withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode@RunningNode{rnConnectInfo} -> do
           Queries.queryEra rnConnectInfo >>= assertEqual "Should be in conway era" (C.anyCardanoEra C.ConwayEra)
           let lovelacePerUtxo = 100_000_000
               numUtxos = 10
           void $ W.createSeededWallet C.BabbageEraOnwardsConway (contramap TLWallet tr) runningNode numUtxos lovelacePerUtxo
-          majorProtVersionsRef <- newIORef []
-          res <- C.liftIO $ runExceptT $ runNodeClient rnNodeConfigFile rnNodeSocket $ \_localNodeConnectInfo env -> do
-            pure $ foldClient () NoLedgerStateArgs env $ \_catchingUp _ _ bim -> do
-              case bim of
-                ( C.BlockInMode
-                    C.ConwayEra
-                    ( C.ShelleyBlock
-                        C.ShelleyBasedEraConway
-                        ( Consensus.ShelleyBlock
-                            (Ledger.Block (Consensus.Header hb _) _)
-                            _
-                          )
-                      )
-                  ) -> do
-                    modifyIORef majorProtVersionsRef $ \majorProtVersions ->
-                      L.pvMajor (Consensus.hbProtVer hb) : majorProtVersions
-                    pure Nothing
-                (C.BlockInMode _ _block) -> do
-                  failure "Block should be a ShelleyBlock in Conway era"
-          case res of
-            Left err -> failure $ show err
-            Right () -> do
-              majorProtVersions <- readIORef majorProtVersionsRef
-              expectedVersion <- L.mkVersion (11 :: Integer)
-              assertBool "Should have correct conway era protocol version" $
-                not (null majorProtVersions) && all (== expectedVersion) majorProtVersions
+          protocolParameters <- queryProtocolParameters rnConnectInfo
+          expectedVersion <- L.mkVersion (11 :: Integer)
+          assertEqual
+            "Should have correct conway era protocol version"
+            (L.ProtVer expectedVersion 0)
+            (view L.ppProtocolVersionL protocolParameters)
 
 startLocalStakePoolNode :: IO ()
 startLocalStakePoolNode = do

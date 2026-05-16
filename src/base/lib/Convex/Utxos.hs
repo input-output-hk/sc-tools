@@ -76,12 +76,12 @@ import Cardano.Api (AddressInEra, BabbageEra, Block (..), BlockInMode (..), Conw
 import Cardano.Api qualified as C
 import Cardano.Ledger.Alonzo.Scripts qualified as Scripts
 import Cardano.Ledger.Alonzo.TxWits (unRedeemers)
-import Cardano.Ledger.Alonzo.TxWits qualified as Alonzo.TxWits
 import Cardano.Ledger.Babbage.TxBody qualified as Babbage.TxBody
 import Cardano.Ledger.BaseTypes qualified as CT
 import Cardano.Ledger.Conway.Scripts qualified as Scripts.Conway
 import Cardano.Ledger.Conway.TxBody qualified as Conway.TxBody
 import Cardano.Ledger.Credential qualified as Shelley
+import Cardano.Ledger.Keys qualified as LedgerKeys
 import Cardano.Ledger.TxIn qualified as CT
 import Control.Lens (
   makeLenses,
@@ -132,7 +132,7 @@ import Prettyprinter (
 import Prettyprinter qualified
 import Prelude hiding (null)
 
-type AddressCredential = Shelley.PaymentCredential
+type AddressCredential = Shelley.Credential LedgerKeys.Payment
 
 -- | A set of unspent transaction outputs
 newtype UtxoSet ctx a = UtxoSet {_utxos :: Map C.TxIn (C.InAnyCardanoEra (C.TxOut ctx), a)}
@@ -648,7 +648,7 @@ extractConwayTxn' ex UtxoSet{_utxos} cred theTx@(Tx txBody _) =
       checkInput :: (Word32, TxIn) -> Maybe (TxIn, ((C.InAnyCardanoEra (C.TxOut C.CtxTx), a), Maybe (HashableScriptData, ExecutionUnits)))
       checkInput (idx, txIn) = fmap (txIn,) $ do
         o <- Map.lookup txIn _utxos
-        let redeemer = fmap (bimap C.fromAlonzoData C.fromAlonzoExUnits) (Alonzo.TxWits.lookupRedeemer (Scripts.Conway.ConwaySpending $ Scripts.AsIx idx) txReds)
+        let redeemer = fmap (bimap C.fromAlonzoData C.fromAlonzoExUnits) (Map.lookup (Scripts.Conway.ConwaySpending $ Scripts.AsIx idx) (unRedeemers txReds))
         pure (o, redeemer)
 
       _outputsAdded =

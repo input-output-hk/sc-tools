@@ -65,8 +65,8 @@ library
     , lens
     , mtl
     , ouroboros-consensus
-    , ouroboros-consensus-cardano
-    , ouroboros-network-api
+    , ouroboros-consensus:cardano
+    , ouroboros-network:api
     , safe-money
     , sop-extras
     , streaming

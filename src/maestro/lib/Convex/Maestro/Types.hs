@@ -150,9 +150,6 @@ toCardanoApiCoinCompact = L.toCompactPartial . toCardanoApiCoin
 toCardanoApiBoundedRational :: (HasCallStack, Typeable r, BaseTypes.BoundedRational r) => MaestroRational -> r
 toCardanoApiBoundedRational (MaestroRational r) = C.unsafeBoundedRational r
 
-toLovelace :: AsAda -> C.Lovelace
-toLovelace (AsAda (AsLovelace l)) = L.Coin . toInteger $ l
-
 toCardanoApiProtVer :: ProtocolVersion -> L.ProtVer
 toCardanoApiProtVer ProtocolVersion{protocolVersionMajor, protocolVersionMinor} =
   L.ProtVer
@@ -222,19 +219,19 @@ toCardanoApiProtocolParams
     } =
     L.PParams
       ( L.emptyPParamsIdentity @LCurrentEra
-          & L.hkdMinFeeAL .~ L.Coin (fromIntegral protocolParametersMinFeeCoefficient)
-          & L.hkdMinFeeBL .~ toCardanoApiCoin protocolParametersMinFeeConstant
+          & L.hkdTxFeePerByteL .~ L.CoinPerByte (L.toCompactPartial (L.Coin (fromIntegral protocolParametersMinFeeCoefficient)))
+          & L.hkdTxFeeFixedCompactL .~ toCardanoApiCoinCompact protocolParametersMinFeeConstant
           & L.hkdMaxBBSizeL .~ fromIntegral (asBytesBytes protocolParametersMaxBlockBodySize)
           & L.hkdMaxTxSizeL .~ fromIntegral (asBytesBytes protocolParametersMaxTransactionSize)
           & L.hkdMaxBHSizeL .~ fromIntegral (asBytesBytes protocolParametersMaxBlockHeaderSize)
-          & L.hkdKeyDepositL .~ toCardanoApiCoin protocolParametersStakeCredentialDeposit
+          & L.hkdKeyDepositCompactL .~ toCardanoApiCoinCompact protocolParametersStakeCredentialDeposit
           & L.hkdPoolDepositCompactL .~ toCardanoApiCoinCompact protocolParametersStakePoolDeposit
           & L.hkdEMaxL .~ L.EpochInterval (fromIntegral protocolParametersStakePoolRetirementEpochBound)
           & L.hkdNOptL .~ fromIntegral protocolParametersDesiredNumberOfStakePools
           & L.hkdA0L .~ toCardanoApiBoundedRational protocolParametersStakePoolPledgeInfluence
           & L.hkdRhoL .~ toCardanoApiBoundedRational protocolParametersMonetaryExpansion
           & L.hkdTauL .~ toCardanoApiBoundedRational protocolParametersTreasuryExpansion
-          & L.hkdMinPoolCostL .~ toCardanoApiCoin protocolParametersMinStakePoolCost
+          & L.hkdMinPoolCostCompactL .~ toCardanoApiCoinCompact protocolParametersMinStakePoolCost
           & L.hkdCostModelsL .~ toLedgerCostModel protocolParametersPlutusCostModels
           & L.hkdPricesL
             .~ toPricesRational protocolParametersScriptExecutionPrices
@@ -245,7 +242,7 @@ toCardanoApiProtocolParams
           & L.hkdMaxValSizeL .~ fromIntegral (asBytesBytes protocolParametersMaxValueSize)
           & L.hkdCollateralPercentageL .~ fromIntegral protocolParametersCollateralPercentage
           & L.hkdMaxCollateralInputsL .~ fromIntegral protocolParametersMaxCollateralInputs
-          & L.hkdCoinsPerUTxOByteL .~ L.CoinPerByte (L.Coin (fromIntegral protocolParametersMinUtxoDepositCoefficient)) -- UNSURE mapping
+          & L.hkdCoinsPerUTxOByteL .~ L.CoinPerByte (L.toCompactPartial (L.Coin (fromIntegral protocolParametersMinUtxoDepositCoefficient))) -- UNSURE mapping
           -- Conway-specific values
           -- see note [Protocol Parameter Conversion]
           & L.hkdPoolVotingThresholdsL
@@ -272,7 +269,7 @@ toCardanoApiProtocolParams
           & L.hkdCommitteeMinSizeL .~ fromIntegral protocolParametersConstitutionalCommitteeMinSize
           & L.hkdCommitteeMaxTermLengthL .~ BaseTypes.EpochInterval (fromIntegral protocolParametersConstitutionalCommitteeMaxTermLength)
           & L.hkdGovActionLifetimeL .~ BaseTypes.EpochInterval (fromIntegral protocolParametersGovernanceActionLifetime)
-          & L.hkdGovActionDepositL .~ toLovelace protocolParametersGovernanceActionDeposit
+          & L.hkdGovActionDepositCompactL .~ toCardanoApiCoinCompact protocolParametersGovernanceActionDeposit
           & L.hkdDRepDepositCompactL .~ toCardanoApiCoinCompact protocolParametersDelegateRepresentativeDeposit
           & L.hkdDRepActivityL .~ BaseTypes.EpochInterval (fromIntegral protocolParametersDelegateRepresentativeMaxIdleTime)
           & L.hkdMinFeeRefScriptCostPerByteL .~ C.unsafeBoundedRational @BaseTypes.NonNegativeInterval (Maestro.minFeeReferenceScriptsBase protocolParametersMinFeeReferenceScripts)
@@ -285,6 +282,7 @@ toLedgerEraBound Maestro.EraBound{Maestro.eraBoundEpoch, Maestro.eraBoundSlot, M
     { Ouroboros.boundTime = CTime.RelativeTime $ Maestro.eraBoundTimeSeconds eraBoundTime
     , Ouroboros.boundSlot = CSlot.SlotNo $ fromIntegral eraBoundSlot
     , Ouroboros.boundEpoch = CSlot.EpochNo $ fromIntegral eraBoundEpoch
+    , Ouroboros.boundPerasRound = Ouroboros.NoPerasEnabled
     }
 
 toLedgerEraParams :: Maestro.EraParameters -> Ouroboros.EraParams
@@ -294,6 +292,7 @@ toLedgerEraParams Maestro.EraParameters{Maestro.eraParametersEpochLength, Maestr
     , Ouroboros.eraSlotLength = CTime.mkSlotLength $ Maestro.epochSlotLengthMilliseconds eraParametersSlotLength / 1000
     , Ouroboros.eraSafeZone = Ouroboros.StandardSafeZone $ fromJust eraParametersSafeZone
     , Ouroboros.eraGenesisWin = fromIntegral $ fromJust eraParametersSafeZone -- TODO: Get it from provider? It is supposed to be 3k/f where k is security parameter (at present 2160) and f is active slot coefficient. Usually ledger set the safe zone size such that it guarantees at least k blocks...
+    , Ouroboros.eraPerasRoundLength = Ouroboros.NoPerasEnabled
     }
 
 toLedgerEraSummary :: Maestro.EraSummary -> Ouroboros.EraSummary
