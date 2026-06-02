@@ -469,6 +469,9 @@ pv11ProtocolParameterUpgradeConfig drepHash =
   prepareShelleyGenesis genesis =
     genesis
       { C.sgEpochLength = BaseTypes.EpochSize 20
+      , C.sgSlotLength = 0.1
+      , C.sgSecurityParam = BaseTypes.unsafeNonZero 2160
+      , C.sgActiveSlotsCoeff = fromMaybe (error "1.0 should be a valid active slots coefficient") $ BaseTypes.boundRational 1.0
       }
 
   prepareConwayGenesis :: Aeson.Value -> Aeson.Value
