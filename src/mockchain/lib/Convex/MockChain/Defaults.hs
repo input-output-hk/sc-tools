@@ -104,7 +104,7 @@ slotLength :: SlotLength
 slotLength = mkSlotLength 1 -- 1 second
 
 latestProtVer :: L.ProtVer
-latestProtVer = L.ProtVer (toEnum 10) 0
+latestProtVer = L.ProtVer (toEnum 11) 0
 
 -- FIXME: Make this era independent
 

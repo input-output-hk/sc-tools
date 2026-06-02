@@ -402,7 +402,7 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
       >>= BS.writeFile
         (stateDirectory </> nodeByronGenesisFile args)
     readConfigFile ("devnet" </> "genesis-shelley.json")
-      >>= copyAndChangeJSONFile
+      >>= copyAndChangeShelleyGenesisFile
         cfShelley
         (stateDirectory </> nodeShelleyGenesisFile args)
     readConfigFile ("devnet" </> "genesis-alonzo.json")
@@ -433,6 +433,54 @@ copyAndChangeJSONFile modification target =
     . either (error . (<>) "Failed to decode json: ") modification
     . Aeson.eitherDecode
     . BS.fromStrict
+
+copyAndChangeShelleyGenesisFile
+  :: (FromJSON a, ToJSON a)
+  => (a -> a)
+  -> FilePath
+  -> BS.ByteString
+  -> IO ()
+copyAndChangeShelleyGenesisFile modification target sourceBytes =
+  let sourceValue =
+        either (error . (<>) "Failed to decode json: ") id $
+          Aeson.eitherDecode (BS.fromStrict sourceBytes)
+   in BS.writeFile
+        target
+        . BS.toStrict
+        . Aeson.encode
+        . preserveShelleyProtocolVersion sourceValue
+        . toJSON
+        . either (error . (<>) "Failed to decode json: ") modification
+        . Aeson.eitherDecode
+        . BS.fromStrict
+        $ sourceBytes
+
+preserveShelleyProtocolVersion :: Aeson.Value -> Aeson.Value -> Aeson.Value
+preserveShelleyProtocolVersion sourceValue targetValue =
+  case shelleyProtocolVersion sourceValue of
+    Nothing -> targetValue
+    Just protocolVersion ->
+      withObject
+        ( \targetObject ->
+            case Aeson.KeyMap.lookup "protocolParams" targetObject of
+              Nothing -> targetObject
+              Just protocolParams ->
+                Aeson.KeyMap.insert
+                  "protocolParams"
+                  ( withObject
+                      (Aeson.KeyMap.insert "protocolVersion" protocolVersion)
+                      protocolParams
+                  )
+                  targetObject
+        )
+        targetValue
+
+shelleyProtocolVersion :: Aeson.Value -> Maybe Aeson.Value
+shelleyProtocolVersion = \case
+  Aeson.Object sourceObject -> do
+    Aeson.Object protocolParams <- Aeson.KeyMap.lookup "protocolParams" sourceObject
+    Aeson.KeyMap.lookup "protocolVersion" protocolParams
+  _ -> Nothing
 
 -- | Re-generate configuration and genesis files with fresh system start times.
 refreshSystemStart
