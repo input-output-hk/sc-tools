@@ -115,7 +115,7 @@ checkCardanoNode = do
 startLocalNode :: IO ()
 startLocalNode = do
   showLogsOnFailure $ \tr -> do
-    failAfter 10 $
+    failAfter 40 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet tr tmp $ \RunningNode{rnNodeSocket, rnNodeConfigFile} -> do
           runExceptT (loadConnectInfo rnNodeConfigFile rnNodeSocket) >>= \case
@@ -125,7 +125,7 @@ startLocalNode = do
 checkTransitionToConway :: IO ()
 checkTransitionToConway = do
   showLogsOnFailure $ \tr -> do
-    failAfter 10 $
+    failAfter 40 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode@RunningNode{rnConnectInfo} -> do
           Queries.queryEra rnConnectInfo >>= assertEqual "Should be in conway era" (C.anyCardanoEra C.ConwayEra)
