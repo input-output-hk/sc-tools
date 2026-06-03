@@ -470,7 +470,9 @@ pv11ProtocolParameterUpgradeConfig drepHash =
     genesis
       { C.sgEpochLength = BaseTypes.EpochSize 20
       , C.sgSlotLength = 0.1
-      , C.sgSecurityParam = BaseTypes.unsafeNonZero 2160
+      , -- Keep the hard-fork forecast long enough for integration tests that
+        -- wait across Djed reward-fee deadlines before building the next tx.
+        C.sgSecurityParam = BaseTypes.unsafeNonZero 5000
       , C.sgActiveSlotsCoeff = fromMaybe (error "1.0 should be a valid active slots coefficient") $ BaseTypes.boundRational 1.0
       }
 
