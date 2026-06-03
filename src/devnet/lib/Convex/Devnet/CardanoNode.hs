@@ -359,7 +359,9 @@ withCardanoNodeDevnetConfig
 withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours, peers} action = do
   createDirectoryIfMissing True stateDirectory
   drepHash <- createDevnetDRepCredentials
-  let effectiveConfigChanges = configChanges <> pv11ProtocolParameterUpgradeConfig drepHash
+  -- Apply the PV11 devnet setup as defaults so callers can still tune genesis
+  -- fields such as epoch length and security parameter for reward tests.
+  let effectiveConfigChanges = pv11ProtocolParameterUpgradeConfig drepHash <> configChanges
   [dlgCert, signKey, vrfKey, kesKey, opCert] <-
     mapM
       copyDevnetCredential
