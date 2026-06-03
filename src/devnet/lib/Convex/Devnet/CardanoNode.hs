@@ -413,9 +413,10 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
       >>= copyAndChangeShelleyGenesisFile
         cfShelley
         (stateDirectory </> nodeShelleyGenesisFile args)
+    pv11CostModel <- readConfigFile ("devnet" </> "plutus-v3-cost-model-pv11.json")
     readConfigFile ("devnet" </> "genesis-alonzo.json")
       >>= copyAndChangeJSONFile
-        cfAlonzo
+        (addPV11CostModel pv11CostModel . cfAlonzo)
         (stateDirectory </> nodeAlonzoGenesisFile args)
     readConfigFile ("devnet" </> "genesis-conway.json")
       >>= copyAndChangeJSONFile
@@ -536,110 +537,113 @@ pv11ProtocolParameterUpgradeConfig drepHash =
 
 upgradePV11ProtocolParameters :: Tracer IO NodeLog -> FilePath -> String -> RunningNode -> IO ()
 upgradePV11ProtocolParameters tracer stateDirectory _drepHash rn@RunningNode{rnNodeSocket, rnNetworkId} = do
-  costModelFile <- copyDevnetDataFile "plutus-v3-cost-model-pv11.json"
-  faucetVKey <- copyCredentialFile "faucet.vk"
-  faucetSKey <- copyCredentialFile "faucet.sk"
-  setFileMode faucetSKey ownerReadMode
+  isAlreadyUpgraded <- hasPV11ProtocolParameters tracer rn
+  when isAlreadyUpgraded $ waitForPV11ProtocolParameters tracer rn
+  unless isAlreadyUpgraded $ do
+    costModelFile <- copyDevnetDataFile "plutus-v3-cost-model-pv11.json"
+    faucetVKey <- copyCredentialFile "faucet.vk"
+    faucetSKey <- copyCredentialFile "faucet.sk"
+    setFileMode faucetSKey ownerReadMode
 
-  let
-    anchorFile = stateDirectory </> "protocol-parameter-upgrade.anchor"
-    actionFile = stateDirectory </> "protocol-parameter-upgrade.action"
-    proposalBodyFile = stateDirectory </> "protocol-parameter-upgrade.txbody"
-    proposalTxFile = stateDirectory </> "protocol-parameter-upgrade.tx"
-    voteFile = stateDirectory </> "protocol-parameter-upgrade.vote"
-    voteBodyFile = stateDirectory </> "protocol-parameter-upgrade-vote.txbody"
-    voteTxFile = stateDirectory </> "protocol-parameter-upgrade-vote.tx"
-    proposalUtxoFile = stateDirectory </> "protocol-parameter-upgrade-utxo.json"
-    voteUtxoFile = stateDirectory </> "protocol-parameter-upgrade-vote-utxo.json"
+    let
+      anchorFile = stateDirectory </> "protocol-parameter-upgrade.anchor"
+      actionFile = stateDirectory </> "protocol-parameter-upgrade.action"
+      proposalBodyFile = stateDirectory </> "protocol-parameter-upgrade.txbody"
+      proposalTxFile = stateDirectory </> "protocol-parameter-upgrade.tx"
+      voteFile = stateDirectory </> "protocol-parameter-upgrade.vote"
+      voteBodyFile = stateDirectory </> "protocol-parameter-upgrade-vote.txbody"
+      voteTxFile = stateDirectory </> "protocol-parameter-upgrade-vote.tx"
+      proposalUtxoFile = stateDirectory </> "protocol-parameter-upgrade-utxo.json"
+      voteUtxoFile = stateDirectory </> "protocol-parameter-upgrade-vote-utxo.json"
 
-  BS.writeFile anchorFile mempty
-  anchorHash <- cliOut tracer ["hash", "anchor-data", "--file-text", anchorFile]
-  cli
-    tracer
-    [ "conway"
-    , "governance"
-    , "action"
-    , "create-protocol-parameters-update"
-    , networkFlag rnNetworkId
-    , "--governance-action-deposit"
-    , "0"
-    , "--deposit-return-stake-key-hash"
-    , genesisStakeKeyHash
-    , "--anchor-url"
-    , "https://example.com"
-    , "--anchor-data-hash"
-    , anchorHash
-    , "--cost-model-file"
-    , costModelFile
-    , "--out-file"
-    , actionFile
-    ]
+    BS.writeFile anchorFile mempty
+    anchorHash <- cliOut tracer ["hash", "anchor-data", "--file-text", anchorFile]
+    cli
+      tracer
+      [ "conway"
+      , "governance"
+      , "action"
+      , "create-protocol-parameters-update"
+      , networkFlag rnNetworkId
+      , "--governance-action-deposit"
+      , "0"
+      , "--deposit-return-stake-key-hash"
+      , genesisStakeKeyHash
+      , "--anchor-url"
+      , "https://example.com"
+      , "--anchor-data-hash"
+      , anchorHash
+      , "--cost-model-file"
+      , costModelFile
+      , "--out-file"
+      , actionFile
+      ]
 
-  faucetAddress <- cliOut tracer $ ["conway", "address", "build", "--payment-verification-key-file", faucetVKey] <> networkMagicArgs rnNetworkId
-  cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", faucetAddress, "--out-file", proposalUtxoFile]
-  (proposalTxIn, proposalLovelace) <- readSingleLovelaceUtxo proposalUtxoFile
-  let proposalFee = 1_000_000
-  cli
-    tracer
-    [ "conway"
-    , "transaction"
-    , "build-raw"
-    , "--tx-in"
-    , proposalTxIn
-    , "--tx-out"
-    , faucetAddress <> "+" <> show (proposalLovelace - proposalFee)
-    , "--fee"
-    , show proposalFee
-    , "--proposal-file"
-    , actionFile
-    , "--out-file"
-    , proposalBodyFile
-    ]
-  cli tracer $ ["conway", "transaction", "sign", "--tx-body-file", proposalBodyFile, "--signing-key-file", faucetSKey] <> networkMagicArgs rnNetworkId <> ["--out-file", proposalTxFile]
-  proposalTxId <- cliOut tracer ["conway", "transaction", "txid", "--tx-file", proposalTxFile, "--output-text"]
-  cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", proposalTxFile]
+    faucetAddress <- cliOut tracer $ ["conway", "address", "build", "--payment-verification-key-file", faucetVKey] <> networkMagicArgs rnNetworkId
+    cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", faucetAddress, "--out-file", proposalUtxoFile]
+    (proposalTxIn, proposalLovelace) <- readSingleLovelaceUtxo proposalUtxoFile
+    let proposalFee = 1_000_000
+    cli
+      tracer
+      [ "conway"
+      , "transaction"
+      , "build-raw"
+      , "--tx-in"
+      , proposalTxIn
+      , "--tx-out"
+      , faucetAddress <> "+" <> show (proposalLovelace - proposalFee)
+      , "--fee"
+      , show proposalFee
+      , "--proposal-file"
+      , actionFile
+      , "--out-file"
+      , proposalBodyFile
+      ]
+    cli tracer $ ["conway", "transaction", "sign", "--tx-body-file", proposalBodyFile, "--signing-key-file", faucetSKey] <> networkMagicArgs rnNetworkId <> ["--out-file", proposalTxFile]
+    proposalTxId <- cliOut tracer ["conway", "transaction", "txid", "--tx-file", proposalTxFile, "--output-text"]
+    cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", proposalTxFile]
 
-  void $ waitForNextBlock rn
+    void $ waitForNextBlock rn
 
-  cli
-    tracer
-    [ "conway"
-    , "governance"
-    , "vote"
-    , "create"
-    , "--yes"
-    , "--governance-action-tx-id"
-    , proposalTxId
-    , "--governance-action-index"
-    , "0"
-    , "--drep-verification-key-file"
-    , stateDirectory </> "drep.vkey"
-    , "--out-file"
-    , voteFile
-    ]
+    cli
+      tracer
+      [ "conway"
+      , "governance"
+      , "vote"
+      , "create"
+      , "--yes"
+      , "--governance-action-tx-id"
+      , proposalTxId
+      , "--governance-action-index"
+      , "0"
+      , "--drep-verification-key-file"
+      , stateDirectory </> "drep.vkey"
+      , "--out-file"
+      , voteFile
+      ]
 
-  cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", faucetAddress, "--out-file", voteUtxoFile]
-  (voteTxIn, voteLovelace) <- readSingleLovelaceUtxo voteUtxoFile
-  let voteFee = 1_000_000
-  cli
-    tracer
-    [ "conway"
-    , "transaction"
-    , "build-raw"
-    , "--tx-in"
-    , voteTxIn
-    , "--tx-out"
-    , faucetAddress <> "+" <> show (voteLovelace - voteFee)
-    , "--fee"
-    , show voteFee
-    , "--vote-file"
-    , voteFile
-    , "--out-file"
-    , voteBodyFile
-    ]
-  cli tracer $ ["conway", "transaction", "sign", "--tx-body-file", voteBodyFile, "--signing-key-file", faucetSKey, "--signing-key-file", stateDirectory </> "drep.skey"] <> networkMagicArgs rnNetworkId <> ["--out-file", voteTxFile]
-  cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", voteTxFile]
-  waitForPV11ProtocolParameters tracer rn
+    cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", faucetAddress, "--out-file", voteUtxoFile]
+    (voteTxIn, voteLovelace) <- readSingleLovelaceUtxo voteUtxoFile
+    let voteFee = 1_000_000
+    cli
+      tracer
+      [ "conway"
+      , "transaction"
+      , "build-raw"
+      , "--tx-in"
+      , voteTxIn
+      , "--tx-out"
+      , faucetAddress <> "+" <> show (voteLovelace - voteFee)
+      , "--fee"
+      , show voteFee
+      , "--vote-file"
+      , voteFile
+      , "--out-file"
+      , voteBodyFile
+      ]
+    cli tracer $ ["conway", "transaction", "sign", "--tx-body-file", voteBodyFile, "--signing-key-file", faucetSKey, "--signing-key-file", stateDirectory </> "drep.skey"] <> networkMagicArgs rnNetworkId <> ["--out-file", voteTxFile]
+    cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", voteTxFile]
+    waitForPV11ProtocolParameters tracer rn
  where
   genesisStakeKeyHash :: String
   genesisStakeKeyHash = "074a515f7f32bf31a4f41c7417a8136e8152bfb42f06d71b389a6896"
@@ -653,6 +657,12 @@ upgradePV11ProtocolParameters tracer stateDirectory _drepHash rn@RunningNode{rnN
     let destination = stateDirectory </> file
     readConfigFile ("credentials" </> file) >>= BS.writeFile destination
     pure destination
+
+hasPV11ProtocolParameters :: Tracer IO NodeLog -> RunningNode -> IO Bool
+hasPV11ProtocolParameters tracer RunningNode{rnNodeSocket, rnNetworkId} = do
+  let protocolParametersFile = rnNodeSocket <> ".protocol-parameters.json"
+  cli tracer $ ["conway", "query", "protocol-parameters", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--out-file", protocolParametersFile]
+  (== 350) <$> plutusV3CostModelLength protocolParametersFile
 
 waitForPV11ProtocolParameters :: Tracer IO NodeLog -> RunningNode -> IO ()
 waitForPV11ProtocolParameters tracer RunningNode{rnNodeSocket, rnNetworkId} = go (60 :: Int)
@@ -725,6 +735,24 @@ copyAndChangeJSONFile modification target =
     . either (error . (<>) "Failed to decode json: ") modification
     . Aeson.eitherDecode
     . BS.fromStrict
+
+addPV11CostModel :: BS.ByteString -> Aeson.Value -> Aeson.Value
+addPV11CostModel pv11CostModelBytes genesis =
+  case Aeson.eitherDecodeStrict pv11CostModelBytes of
+    Right (Aeson.Object pv11CostModel) ->
+      case Aeson.KeyMap.lookup "PlutusV3" pv11CostModel of
+        Just plutusV3 ->
+          withObject
+            ( \genesisObject ->
+                let costModels =
+                      withObject
+                        (Aeson.KeyMap.insert "PlutusV3" plutusV3)
+                        (fromMaybe (Aeson.object []) (Aeson.KeyMap.lookup "costModels" genesisObject))
+                 in Aeson.KeyMap.insert "costModels" costModels genesisObject
+            )
+            genesis
+        _ -> genesis
+    _ -> genesis
 
 copyAndChangeShelleyGenesisFile
   :: (FromJSON a, ToJSON a)
