@@ -420,11 +420,11 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
         (stateDirectory </> nodeAlonzoGenesisFile args)
     readConfigFile ("devnet" </> "genesis-conway.json")
       >>= copyAndChangeJSONFile
-        (addPV11CostModelToConway pv11CostModel . cfConway)
+        cfConway
         (stateDirectory </> nodeConwayGenesisFile args)
     readConfigFile ("devnet" </> "genesis-dijkstra.json")
       >>= copyAndChangeJSONFile
-        (addPV11CostModelToConway pv11CostModel . cfConway)
+        cfConway
         (stateDirectory </> nodeDijkstraGenesisFile args)
 
   createDevnetDRepCredentials = do
@@ -738,38 +738,21 @@ copyAndChangeJSONFile modification target =
 
 addPV11CostModel :: BS.ByteString -> Aeson.Value -> Aeson.Value
 addPV11CostModel pv11CostModelBytes genesis =
-  maybe genesis (addAlonzoPV11CostModel genesis) (decodePV11CostModel pv11CostModelBytes)
-
-addPV11CostModelToConway :: BS.ByteString -> Aeson.Value -> Aeson.Value
-addPV11CostModelToConway pv11CostModelBytes genesis =
-  maybe genesis (addConwayPV11CostModel genesis) (decodePV11CostModel pv11CostModelBytes)
-
-decodePV11CostModel :: BS.ByteString -> Maybe Aeson.Value
-decodePV11CostModel pv11CostModelBytes =
   case Aeson.eitherDecodeStrict pv11CostModelBytes of
     Right (Aeson.Object pv11CostModel) ->
       case Aeson.KeyMap.lookup "PlutusV3" pv11CostModel of
-        Just plutusV3 -> Just plutusV3
-        _ -> Nothing
-    _ -> Nothing
-
-addAlonzoPV11CostModel :: Aeson.Value -> Aeson.Value -> Aeson.Value
-addAlonzoPV11CostModel genesis plutusV3 =
-  withObject
-    ( \genesisObject ->
-        let costModels =
-              withObject
-                (Aeson.KeyMap.insert "PlutusV3" plutusV3)
-                (fromMaybe (Aeson.object []) (Aeson.KeyMap.lookup "costModels" genesisObject))
-         in Aeson.KeyMap.insert "costModels" costModels genesisObject
-    )
-    genesis
-
-addConwayPV11CostModel :: Aeson.Value -> Aeson.Value -> Aeson.Value
-addConwayPV11CostModel genesis plutusV3 =
-  withObject
-    (Aeson.KeyMap.insert "plutusV3CostModel" plutusV3)
-    genesis
+        Just plutusV3 ->
+          withObject
+            ( \genesisObject ->
+                let costModels =
+                      withObject
+                        (Aeson.KeyMap.insert "PlutusV3" plutusV3)
+                        (fromMaybe (Aeson.object []) (Aeson.KeyMap.lookup "costModels" genesisObject))
+                 in Aeson.KeyMap.insert "costModels" costModels genesisObject
+            )
+            genesis
+        _ -> genesis
+    _ -> genesis
 
 copyAndChangeShelleyGenesisFile
   :: (FromJSON a, ToJSON a)
