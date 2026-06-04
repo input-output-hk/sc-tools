@@ -371,7 +371,7 @@ balanceTransactionBody
 
     txbody1 <- balancingError . first C.TxBodyError $ C.createTransactionBody C.shelleyBasedEra txbodycontent1'
 
-    let !txFee = C.calculateMinTxFee C.shelleyBasedEra (C.unLedgerProtocolParameters protocolParams) csiUtxo txbody1 numWits
+    let !txFee = addWitnessFeeMargin $ C.calculateMinTxFee C.shelleyBasedEra (C.unLedgerProtocolParameters protocolParams) csiUtxo txbody1 numWits
     traceWith tracer Txfee{fee = C.lovelaceToQuantity txFee}
 
     -- Calculate collateral return and total collateral values. This allows
@@ -510,6 +510,13 @@ txOutChange :: forall era ctx. (C.IsMaryBasedEra era) => TxOut ctx era -> Balanc
 txOutChange (view L._TxOut -> (fmap C.fromShelleyPaymentCredential . preview (inMary @era L._AddressInEra . L._Address . _2) -> Just addr, view L._TxOutValue -> value, _, _)) =
   BalanceChanges (Map.singleton addr value)
 txOutChange _ = mempty
+
+-- cardano-api estimates key witness sizes from a count, but the node validates
+-- the final signed transaction bytes. With node 11 we have observed small
+-- FeeTooSmallUTxO gaps for externally signed balanced transactions, so keep a
+-- narrow margin and let the normal change calculation absorb it.
+addWitnessFeeMargin :: Coin -> Coin
+addWitnessFeeMargin = (+ Coin 1_000)
 
 data BalanceTxError era
   = ACoinSelectionError CoinSelectionError
