@@ -666,22 +666,33 @@ hasPV11ProtocolParameters tracer RunningNode{rnNodeSocket, rnNetworkId} = do
   (== 350) <$> plutusV3CostModelLength protocolParametersFile
 
 waitForPV11ProtocolParameters :: Tracer IO NodeLog -> RunningNode -> IO ()
-waitForPV11ProtocolParameters tracer rn@RunningNode{rnNodeSocket} = go (180 :: Int)
+waitForPV11ProtocolParameters tracer rn@RunningNode{rnNodeSocket} = go AwaitRatification (180 :: Int)
  where
   protocolParametersFile = rnNodeSocket <> ".protocol-parameters.json"
   govStateFile = rnNodeSocket <> ".gov-state.json"
 
-  go 0 = do
+  go phase 0 = do
     status <- queryPV11ProtocolParameterStatus tracer rn protocolParametersFile
     writeGovStateSnapshot tracer rn govStateFile
-    failure $
-      "waitForPV11ProtocolParameters: PlutusV3 cost model was not upgraded; "
-        <> pv11StatusMessage status
-        <> "; protocol parameters: "
-        <> protocolParametersFile
-        <> "; governance state: "
-        <> govStateFile
-  go n = do
+    govStatus <- pv11GovernanceStateStatus govStateFile
+    case (phase, pv11UpgradeEnactedForNextEpoch govStatus) of
+      (AwaitRatification, True) -> do
+        traceWith tracer $
+          MsgCLIStatus
+            "waitForPV11ProtocolParameters"
+            "PV11 protocol parameters are ratified and awaiting epoch-boundary enactment"
+        go AwaitEpochBoundary 360
+      _ ->
+        failure $
+          "waitForPV11ProtocolParameters: PlutusV3 cost model was not upgraded; "
+            <> pv11StatusMessage status
+            <> "; "
+            <> pv11GovernanceStateStatusMessage govStatus
+            <> "; protocol parameters: "
+            <> protocolParametersFile
+            <> "; governance state: "
+            <> govStateFile
+  go phase n = do
     status@(blockNo, _, _, len) <- queryPV11ProtocolParameterStatus tracer rn protocolParametersFile
     if len == 350
       then pure ()
@@ -690,7 +701,12 @@ waitForPV11ProtocolParameters tracer rn@RunningNode{rnNodeSocket} = go (180 :: I
           traceWith tracer $
             MsgCLIStatus "waitForPV11ProtocolParameters" (Text.pack $ pv11StatusMessage status)
         void $ waitForNextBlock' rn blockNo
-        go (n - 1)
+        go phase (n - 1)
+
+data PV11WaitPhase
+  = AwaitRatification
+  | AwaitEpochBoundary
+  deriving stock (Eq, Show)
 
 queryPV11ProtocolParameterStatus :: Tracer IO NodeLog -> RunningNode -> FilePath -> IO (C.BlockNo, C.SlotNo, C.EpochNo, Int)
 queryPV11ProtocolParameterStatus tracer rn@RunningNode{rnNodeSocket, rnNetworkId, rnConnectInfo} protocolParametersFile = do
@@ -719,6 +735,58 @@ writeGovStateSnapshot tracer RunningNode{rnNodeSocket, rnNetworkId} govStateFile
  where
   ignoreCliFailure :: SomeException -> IO ()
   ignoreCliFailure _ = pure ()
+
+data PV11GovernanceStateStatus
+  = PV11GovernanceStateStatus
+  { pv11FuturePParamsLength :: !Int
+  , pv11NextEnactStateLength :: !Int
+  , pv11EnactedGovActions :: !Int
+  , pv11Proposals :: !Int
+  }
+  deriving stock (Eq, Show)
+
+pv11UpgradeEnactedForNextEpoch :: PV11GovernanceStateStatus -> Bool
+pv11UpgradeEnactedForNextEpoch PV11GovernanceStateStatus{pv11FuturePParamsLength, pv11NextEnactStateLength} =
+  pv11FuturePParamsLength == 350 || pv11NextEnactStateLength == 350
+
+pv11GovernanceStateStatusMessage :: PV11GovernanceStateStatus -> String
+pv11GovernanceStateStatusMessage PV11GovernanceStateStatus{pv11FuturePParamsLength, pv11NextEnactStateLength, pv11EnactedGovActions, pv11Proposals} =
+  "governance state has "
+    <> show pv11Proposals
+    <> " proposal(s), "
+    <> show pv11EnactedGovActions
+    <> " enacted action(s), future PlutusV3 length "
+    <> show pv11FuturePParamsLength
+    <> ", next enact-state PlutusV3 length "
+    <> show pv11NextEnactStateLength
+
+pv11GovernanceStateStatus :: FilePath -> IO PV11GovernanceStateStatus
+pv11GovernanceStateStatus file = do
+  value <- unsafeDecodeJsonFile file
+  pure $
+    PV11GovernanceStateStatus
+      { pv11FuturePParamsLength = plutusV3CostModelLengthAt ["futurePParams", "contents"] value
+      , pv11NextEnactStateLength = plutusV3CostModelLengthAt ["nextRatifyState", "nextEnactState", "curPParams"] value
+      , pv11EnactedGovActions = arrayLengthAt ["nextRatifyState", "enactedGovActions"] value
+      , pv11Proposals = arrayLengthAt ["proposals"] value
+      }
+
+plutusV3CostModelLengthAt :: [Aeson.Key] -> Aeson.Value -> Int
+plutusV3CostModelLengthAt path value =
+  case lookupJsonPath (path <> ["costModels", "PlutusV3"]) value of
+    Just (Aeson.Array plutusV3) -> length plutusV3
+    _ -> 0
+
+arrayLengthAt :: [Aeson.Key] -> Aeson.Value -> Int
+arrayLengthAt path value =
+  case lookupJsonPath path value of
+    Just (Aeson.Array xs) -> length xs
+    _ -> 0
+
+lookupJsonPath :: [Aeson.Key] -> Aeson.Value -> Maybe Aeson.Value
+lookupJsonPath [] value = Just value
+lookupJsonPath (key : rest) (Aeson.Object obj) = Aeson.KeyMap.lookup key obj >>= lookupJsonPath rest
+lookupJsonPath _ _ = Nothing
 
 waitForTxOutput :: Tracer IO NodeLog -> RunningNode -> String -> String -> FilePath -> IO C.BlockNo
 waitForTxOutput tracer rn@RunningNode{rnNodeSocket, rnNetworkId} address txId utxoFile = do
