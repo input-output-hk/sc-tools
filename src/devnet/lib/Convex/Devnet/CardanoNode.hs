@@ -48,7 +48,7 @@ import Cardano.Slotting.Time (
  )
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
-import Control.Exception (finally, throwIO)
+import Control.Exception (SomeException, catch, finally, throwIO)
 import Control.Lens ((^.))
 import Control.Monad (unless, void, when, (>=>))
 import Control.Monad.Except (runExceptT)
@@ -538,7 +538,6 @@ pv11ProtocolParameterUpgradeConfig drepHash =
 upgradePV11ProtocolParameters :: Tracer IO NodeLog -> FilePath -> String -> RunningNode -> IO ()
 upgradePV11ProtocolParameters tracer stateDirectory _drepHash rn@RunningNode{rnNodeSocket, rnNetworkId} = do
   isAlreadyUpgraded <- hasPV11ProtocolParameters tracer rn
-  when isAlreadyUpgraded $ waitForPV11ProtocolParameters tracer rn
   unless isAlreadyUpgraded $ do
     costModelFile <- copyDevnetDataFile "plutus-v3-cost-model-pv11.json"
     faucetVKey <- copyCredentialFile "faucet.vk"
@@ -603,7 +602,7 @@ upgradePV11ProtocolParameters tracer stateDirectory _drepHash rn@RunningNode{rnN
     proposalTxId <- cliOut tracer ["conway", "transaction", "txid", "--tx-file", proposalTxFile, "--output-text"]
     cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", proposalTxFile]
 
-    void $ waitForNextBlock rn
+    void $ waitForTxOutput tracer rn faucetAddress proposalTxId proposalUtxoFile
 
     cli
       tracer
@@ -642,7 +641,9 @@ upgradePV11ProtocolParameters tracer stateDirectory _drepHash rn@RunningNode{rnN
       , voteBodyFile
       ]
     cli tracer $ ["conway", "transaction", "sign", "--tx-body-file", voteBodyFile, "--signing-key-file", faucetSKey, "--signing-key-file", stateDirectory </> "drep.skey"] <> networkMagicArgs rnNetworkId <> ["--out-file", voteTxFile]
+    voteTxId <- cliOut tracer ["conway", "transaction", "txid", "--tx-file", voteTxFile, "--output-text"]
     cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", voteTxFile]
+    void $ waitForTxOutput tracer rn faucetAddress voteTxId voteUtxoFile
     waitForPV11ProtocolParameters tracer rn
  where
   genesisStakeKeyHash :: String
@@ -665,17 +666,92 @@ hasPV11ProtocolParameters tracer RunningNode{rnNodeSocket, rnNetworkId} = do
   (== 350) <$> plutusV3CostModelLength protocolParametersFile
 
 waitForPV11ProtocolParameters :: Tracer IO NodeLog -> RunningNode -> IO ()
-waitForPV11ProtocolParameters tracer RunningNode{rnNodeSocket, rnNetworkId} = go (60 :: Int)
+waitForPV11ProtocolParameters tracer rn@RunningNode{rnNodeSocket} = go (180 :: Int)
  where
   protocolParametersFile = rnNodeSocket <> ".protocol-parameters.json"
+  govStateFile = rnNodeSocket <> ".gov-state.json"
 
-  go 0 = failure "waitForPV11ProtocolParameters: PlutusV3 cost model was not upgraded"
+  go 0 = do
+    status <- queryPV11ProtocolParameterStatus tracer rn protocolParametersFile
+    writeGovStateSnapshot tracer rn govStateFile
+    failure $
+      "waitForPV11ProtocolParameters: PlutusV3 cost model was not upgraded; "
+        <> pv11StatusMessage status
+        <> "; protocol parameters: "
+        <> protocolParametersFile
+        <> "; governance state: "
+        <> govStateFile
   go n = do
-    cli tracer $ ["conway", "query", "protocol-parameters", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--out-file", protocolParametersFile]
-    len <- plutusV3CostModelLength protocolParametersFile
+    status@(blockNo, _, _, len) <- queryPV11ProtocolParameterStatus tracer rn protocolParametersFile
     if len == 350
       then pure ()
-      else threadDelay 500_000 >> go (n - 1)
+      else do
+        when (n `mod` 10 == 0) $
+          traceWith tracer $
+            MsgCLIStatus "waitForPV11ProtocolParameters" (Text.pack $ pv11StatusMessage status)
+        void $ waitForNextBlock' rn blockNo
+        go (n - 1)
+
+queryPV11ProtocolParameterStatus :: Tracer IO NodeLog -> RunningNode -> FilePath -> IO (C.BlockNo, C.SlotNo, C.EpochNo, Int)
+queryPV11ProtocolParameterStatus tracer rn@RunningNode{rnNodeSocket, rnNetworkId, rnConnectInfo} protocolParametersFile = do
+  cli tracer $ ["conway", "query", "protocol-parameters", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--out-file", protocolParametersFile]
+  blockNo <- waitForBlock rn
+  (slotNo, _) <- Q.queryTipSlotNo rnConnectInfo
+  epochNo <- Q.queryEpoch rnConnectInfo
+  len <- plutusV3CostModelLength protocolParametersFile
+  pure (blockNo, slotNo, epochNo, len)
+
+pv11StatusMessage :: (C.BlockNo, C.SlotNo, C.EpochNo, Int) -> String
+pv11StatusMessage (blockNo, slotNo, epochNo, len) =
+  "observed PlutusV3 cost model length "
+    <> show len
+    <> " at block "
+    <> show blockNo
+    <> ", slot "
+    <> show slotNo
+    <> ", epoch "
+    <> show epochNo
+
+writeGovStateSnapshot :: Tracer IO NodeLog -> RunningNode -> FilePath -> IO ()
+writeGovStateSnapshot tracer RunningNode{rnNodeSocket, rnNetworkId} govStateFile =
+  (cli tracer $ ["conway", "query", "gov-state", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--out-file", govStateFile])
+    `catch` ignoreCliFailure
+ where
+  ignoreCliFailure :: SomeException -> IO ()
+  ignoreCliFailure _ = pure ()
+
+waitForTxOutput :: Tracer IO NodeLog -> RunningNode -> String -> String -> FilePath -> IO C.BlockNo
+waitForTxOutput tracer rn@RunningNode{rnNodeSocket, rnNetworkId} address txId utxoFile = do
+  startBlock <- waitForBlock rn
+  go startBlock (120 :: Int)
+ where
+  go lastBlock 0 =
+    failure $
+      "waitForTxOutput: transaction "
+        <> txId
+        <> " was not observed in UTxO at address "
+        <> address
+        <> " after block "
+        <> show lastBlock
+  go lastBlock n = do
+    cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", address, "--out-file", utxoFile]
+    seen <- utxoContainsTxId utxoFile txId
+    if seen
+      then pure lastBlock
+      else do
+        nextBlock <- waitForNextBlock' rn lastBlock
+        go nextBlock (n - 1)
+
+utxoContainsTxId :: FilePath -> String -> IO Bool
+utxoContainsTxId file txId = do
+  value <- unsafeDecodeJsonFile file
+  case value of
+    Aeson.Object utxos ->
+      pure $
+        any
+          (Text.isPrefixOf (Text.pack txId <> "#") . Aeson.Key.toText . fst)
+          (Aeson.KeyMap.toList utxos)
+    _ -> pure False
 
 plutusV3CostModelLength :: FilePath -> IO Int
 plutusV3CostModelLength file = do
