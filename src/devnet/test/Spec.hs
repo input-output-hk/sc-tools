@@ -233,7 +233,7 @@ stakePoolRewards = do
               -- This is optionnal since the Cardano reserve at startup is positive, but still good to have.
               let tx = execBuildTx $ payToPublicKey (rnNetworkId rspnNode) (W.verificationKeyHash w2) $ C.lovelaceToValue 10_000_000
               forM_ (replicate 20 (0 :: Int)) $ \_ -> do
-                void $ W.balanceAndSubmit @C.ConwayEra (contramap TLWallet tr) rspnNode w1 tx TrailingChange []
+                void $ W.balanceAndSubmit @C.ConwayEra (contramap TLWallet tr) runningNode w1 tx TrailingChange []
                 threadDelay 100_000
 
               poolOwnerNewRewards <- waitForStakeRewardsIncrease tr runningNode poolOwnerStakeCred
