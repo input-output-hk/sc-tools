@@ -278,10 +278,13 @@ changeMaxTxSize :: IO ()
 changeMaxTxSize =
   let getMaxTxSize = fmap (view L.ppMaxTxSizeL) . queryProtocolParameters . rnConnectInfo
    in showLogsOnFailure $ \tr -> do
-        withTempDir "cardano-cluster" $ \tmp -> do
-          standardTxSize <- withCardanoNodeDevnet (contramap TLNode tr) tmp getMaxTxSize
-          largeTxSize <- withCardanoNodeDevnetConfig (contramap TLNode tr) tmp allowLargeTransactions defaultPortsConfig getMaxTxSize
-          assertEqual "tx size should be large" (2 * standardTxSize) largeTxSize
+        standardTxSize <-
+          withTempDir "cardano-cluster-standard" $ \tmp ->
+            withCardanoNodeDevnet (contramap TLNode tr) tmp getMaxTxSize
+        largeTxSize <-
+          withTempDir "cardano-cluster-large" $ \tmp ->
+            withCardanoNodeDevnetConfig (contramap TLNode tr) tmp allowLargeTransactions defaultPortsConfig getMaxTxSize
+        assertEqual "tx size should be large" (2 * standardTxSize) largeTxSize
 
 data TestLog
   = TLWallet WalletLog
