@@ -115,7 +115,7 @@ checkCardanoNode = do
 startLocalNode :: IO ()
 startLocalNode = do
   showLogsOnFailure $ \tr -> do
-    failAfter 10 $
+    failAfter 40 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet tr tmp $ \RunningNode{rnNodeSocket, rnNodeConfigFile} -> do
           runExceptT (loadConnectInfo rnNodeConfigFile rnNodeSocket) >>= \case
@@ -125,7 +125,7 @@ startLocalNode = do
 checkTransitionToConway :: IO ()
 checkTransitionToConway = do
   showLogsOnFailure $ \tr -> do
-    failAfter 10 $
+    failAfter 40 $
       withTempDir "cardano-cluster" $ \tmp -> do
         withCardanoNodeDevnet (contramap TLNode tr) tmp $ \runningNode@RunningNode{rnConnectInfo} -> do
           Queries.queryEra rnConnectInfo >>= assertEqual "Should be in conway era" (C.anyCardanoEra C.ConwayEra)
@@ -233,7 +233,7 @@ stakePoolRewards = do
               -- This is optionnal since the Cardano reserve at startup is positive, but still good to have.
               let tx = execBuildTx $ payToPublicKey (rnNetworkId rspnNode) (W.verificationKeyHash w2) $ C.lovelaceToValue 10_000_000
               forM_ (replicate 20 (0 :: Int)) $ \_ -> do
-                void $ W.balanceAndSubmit @C.ConwayEra (contramap TLWallet tr) rspnNode w1 tx TrailingChange []
+                void $ W.balanceAndSubmit @C.ConwayEra (contramap TLWallet tr) runningNode w1 tx TrailingChange []
                 threadDelay 100_000
 
               poolOwnerNewRewards <- waitForStakeRewardsIncrease tr runningNode poolOwnerStakeCred
@@ -278,10 +278,13 @@ changeMaxTxSize :: IO ()
 changeMaxTxSize =
   let getMaxTxSize = fmap (view L.ppMaxTxSizeL) . queryProtocolParameters . rnConnectInfo
    in showLogsOnFailure $ \tr -> do
-        withTempDir "cardano-cluster" $ \tmp -> do
-          standardTxSize <- withCardanoNodeDevnet (contramap TLNode tr) tmp getMaxTxSize
-          largeTxSize <- withCardanoNodeDevnetConfig (contramap TLNode tr) tmp allowLargeTransactions defaultPortsConfig getMaxTxSize
-          assertEqual "tx size should be large" (2 * standardTxSize) largeTxSize
+        standardTxSize <-
+          withTempDir "cardano-cluster-standard" $ \tmp ->
+            withCardanoNodeDevnet (contramap TLNode tr) tmp getMaxTxSize
+        largeTxSize <-
+          withTempDir "cardano-cluster-large" $ \tmp ->
+            withCardanoNodeDevnetConfig (contramap TLNode tr) tmp allowLargeTransactions defaultPortsConfig getMaxTxSize
+        assertEqual "tx size should be large" (2 * standardTxSize) largeTxSize
 
 data TestLog
   = TLWallet WalletLog

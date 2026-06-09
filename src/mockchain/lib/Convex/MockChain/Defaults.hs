@@ -104,7 +104,7 @@ slotLength :: SlotLength
 slotLength = mkSlotLength 1 -- 1 second
 
 latestProtVer :: L.ProtVer
-latestProtVer = L.ProtVer (toEnum 10) 0
+latestProtVer = L.ProtVer (toEnum 11) 0
 
 -- FIXME: Make this era independent
 
@@ -127,8 +127,8 @@ protocolParameters =
                 { L.prMem = C.unsafeBoundedRational (577 % 10_000)
                 , L.prSteps = C.unsafeBoundedRational (721 % 10_000_000)
                 }
-            & L.hkdMaxTxExUnitsL .~ ExUnits{exUnitsSteps = 1_0000_000_000, exUnitsMem = 14_000_000}
-            & L.hkdMaxBlockExUnitsL .~ ExUnits{exUnitsSteps = 20_000_000_000, exUnitsMem = 62_000_000}
+            & L.hkdMaxTxExUnitsL .~ ExUnits{exUnitsSteps = 1_0000_000_000, exUnitsMem = 16_500_000}
+            & L.hkdMaxBlockExUnitsL .~ ExUnits{exUnitsSteps = 20_000_000_000, exUnitsMem = 72_000_000}
             & L.hkdMaxValSizeL .~ 5_000
             & L.hkdCollateralPercentageL .~ 150
             & L.hkdMaxCollateralInputsL .~ 3
@@ -554,7 +554,7 @@ v3CostModel =
     , 7305
     , -900
     , 1716
-    , 549
+    , 960
     , 57
     , 85848
     , 0
@@ -564,9 +564,9 @@ v3CostModel =
     , 42921
     , 4
     , 2
-    , 24548
-    , 29498
-    , 38
+    , 30623
+    , 28755
+    , 75
     , 1
     , 898148
     , 27279
@@ -619,7 +619,7 @@ v3CostModel =
     , 7305
     , -900
     , 1716
-    , 549
+    , 960
     , 57
     , 85848
     , 0
@@ -635,7 +635,7 @@ v3CostModel =
     , 7305
     , -900
     , 1716
-    , 549
+    , 960
     , 57
     , 85848
     , 0
@@ -646,7 +646,7 @@ v3CostModel =
     , 7305
     , -900
     , 1716
-    , 549
+    , 960
     , 57
     , 85848
     , 0
@@ -797,6 +797,59 @@ v3CostModel =
     , 1964219
     , 24520
     , 3
+    , 607153
+    , 231697
+    , 53144
+    , 0
+    , 1
+    , 116711
+    , 1957
+    , 4
+    , 231883
+    , 10
+    , 1000
+    , 24838
+    , 7
+    , 1
+    , 232010
+    , 32
+    , 321837444
+    , 25087669
+    , 18
+    , 617887431
+    , 67302824
+    , 36
+    , 356924
+    , 18413
+    , 45
+    , 21
+    , 219951
+    , 9444
+    , 1
+    , 1000
+    , 172116
+    , 183150
+    , 6
+    , 24
+    , 21
+    , 213283
+    , 618401
+    , 1998
+    , 28258
+    , 1
+    , 1000
+    , 38159
+    , 2
+    , 22
+    , 1000
+    , 95933
+    , 1
+    , 1
+    , 11
+    , 1000
+    , 277577
+    , 12
+    , 21
     ]
 
 globals :: (C.IsShelleyBasedEra era) => NodeParams era -> Globals

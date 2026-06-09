@@ -38,6 +38,7 @@ import Cardano.Api (
 import Cardano.Api qualified as C
 import Cardano.Api.Experimental.Certificate qualified as Ex
 import Cardano.Ledger.Api qualified as Ledger
+import Cardano.Ledger.BaseTypes qualified as BaseTypes
 import Cardano.Ledger.Conway.TxCert qualified as L
 import Cardano.Slotting.Slot (withOriginToMaybe)
 import Cardano.Slotting.Time (
@@ -47,7 +48,7 @@ import Cardano.Slotting.Time (
  )
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
-import Control.Exception (finally, throwIO)
+import Control.Exception (SomeException, catch, finally, throwIO)
 import Control.Lens ((^.))
 import Control.Monad (unless, void, when, (>=>))
 import Control.Monad.Except (runExceptT)
@@ -83,10 +84,14 @@ import Data.Aeson (
   (.=),
  )
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Aeson.Key
 import Data.Aeson.KeyMap qualified as Aeson.KeyMap
 import Data.ByteString qualified as BS
 import Data.Fixed (Centi)
 import Data.Functor ((<&>))
+import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
+import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Clock (
@@ -353,6 +358,10 @@ withCardanoNodeDevnetConfig
   -> IO a
 withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours, peers} action = do
   createDirectoryIfMissing True stateDirectory
+  drepHash <- createDevnetDRepCredentials
+  -- Apply the PV11 devnet setup as defaults so callers can still tune genesis
+  -- fields such as epoch length and security parameter for reward tests.
+  let effectiveConfigChanges = pv11ProtocolParameterUpgradeConfig drepHash <> configChanges
   [dlgCert, signKey, vrfKey, kesKey, opCert] <-
     mapM
       copyDevnetCredential
@@ -371,11 +380,12 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
           , nodeOpCertFile = Just opCert
           , nodePort = Just ours
           }
-  copyDevnetFiles args
+  copyDevnetFiles effectiveConfigChanges args
   refreshSystemStart stateDirectory args
   writeTopology peers stateDirectory args
 
   withCardanoNode tracer networkId stateDirectory args $ \rn -> do
+    upgradePV11ProtocolParameters tracer stateDirectory drepHash rn
     traceWith tracer MsgNodeIsReady
     action rn
  where
@@ -391,9 +401,7 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
     setFileMode destination ownerReadMode
     pure destination
 
-  GenesisConfigChanges{cfAlonzo, cfConway, cfShelley, cfNodeConfig} = configChanges
-
-  copyDevnetFiles args = do
+  copyDevnetFiles GenesisConfigChanges{cfAlonzo, cfConway, cfShelley, cfNodeConfig} args = do
     readConfigFile ("devnet" </> "cardano-node.json")
       >>= copyAndChangeJSONFile
         cfNodeConfig
@@ -402,12 +410,13 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
       >>= BS.writeFile
         (stateDirectory </> nodeByronGenesisFile args)
     readConfigFile ("devnet" </> "genesis-shelley.json")
-      >>= copyAndChangeJSONFile
+      >>= copyAndChangeShelleyGenesisFile
         cfShelley
         (stateDirectory </> nodeShelleyGenesisFile args)
+    pv11CostModel <- readConfigFile ("devnet" </> "plutus-v3-cost-model-pv11.json")
     readConfigFile ("devnet" </> "genesis-alonzo.json")
       >>= copyAndChangeJSONFile
-        cfAlonzo
+        (addPV11CostModel pv11CostModel . cfAlonzo)
         (stateDirectory </> nodeAlonzoGenesisFile args)
     readConfigFile ("devnet" </> "genesis-conway.json")
       >>= copyAndChangeJSONFile
@@ -417,6 +426,443 @@ withCardanoNodeDevnetConfig tracer stateDirectory configChanges PortsConfig{ours
       >>= copyAndChangeJSONFile
         cfConway
         (stateDirectory </> nodeDijkstraGenesisFile args)
+
+  createDevnetDRepCredentials = do
+    let
+      drepVKey = stateDirectory </> "drep.vkey"
+      drepSKey = stateDirectory </> "drep.skey"
+    vkeyExists <- doesFileExist drepVKey
+    skeyExists <- doesFileExist drepSKey
+    unless (vkeyExists && skeyExists) $
+      void $
+        readProcess
+          "cardano-cli"
+          [ "conway"
+          , "governance"
+          , "drep"
+          , "key-gen"
+          , "--verification-key-file"
+          , drepVKey
+          , "--signing-key-file"
+          , drepSKey
+          ]
+          ""
+    setFileMode drepSKey ownerReadMode
+    trim
+      <$> readProcess
+        "cardano-cli"
+        [ "conway"
+        , "governance"
+        , "drep"
+        , "id"
+        , "--drep-verification-key-file"
+        , drepVKey
+        , "--output-hex"
+        ]
+        ""
+
+pv11ProtocolParameterUpgradeConfig :: String -> GenesisConfigChanges
+pv11ProtocolParameterUpgradeConfig drepHash =
+  mempty
+    { cfShelley = prepareShelleyGenesis
+    , cfConway = prepareConwayGenesis
+    }
+ where
+  prepareShelleyGenesis :: C.ShelleyGenesis -> C.ShelleyGenesis
+  prepareShelleyGenesis genesis =
+    genesis
+      { C.sgEpochLength = BaseTypes.EpochSize 20
+      , C.sgSlotLength = 0.1
+      , -- Keep the hard-fork forecast long enough for integration tests that
+        -- wait across Djed reward-fee deadlines before building the next tx.
+        C.sgSecurityParam = BaseTypes.unsafeNonZero 5000
+      , C.sgActiveSlotsCoeff = fromMaybe (error "1.0 should be a valid active slots coefficient") $ BaseTypes.boundRational 1.0
+      }
+
+  prepareConwayGenesis :: Aeson.Value -> Aeson.Value
+  prepareConwayGenesis genesis =
+    withObject
+      ( \obj ->
+          let
+            committee =
+              withObject
+                (Aeson.KeyMap.insert "threshold" (Aeson.object ["numerator" .= (0 :: Int), "denominator" .= (1 :: Int)]))
+                (fromMaybe (Aeson.object []) (Aeson.KeyMap.lookup "committee" obj))
+            constitution =
+              withObject
+                (Aeson.KeyMap.insert "script" Aeson.Null)
+                (fromMaybe (Aeson.object []) (Aeson.KeyMap.lookup "constitution" obj))
+            zeroThresholdsField field =
+              zeroThresholds (Aeson.KeyMap.lookup field obj)
+           in
+            Aeson.KeyMap.insert "initialDReps" initialDReps $
+              Aeson.KeyMap.insert "delegs" delegations $
+                Aeson.KeyMap.insert "constitution" constitution $
+                  Aeson.KeyMap.insert "govActionLifetime" (toJSON (30 :: Int)) $
+                    Aeson.KeyMap.insert "govActionDeposit" (toJSON (0 :: Int)) $
+                      Aeson.KeyMap.insert "committeeMinSize" (toJSON (0 :: Int)) $
+                        Aeson.KeyMap.insert "committee" committee $
+                          Aeson.KeyMap.insert "poolVotingThresholds" (zeroThresholdsField "poolVotingThresholds") $
+                            Aeson.KeyMap.insert "dRepVotingThresholds" (zeroThresholdsField "dRepVotingThresholds") obj
+      )
+      genesis
+
+  zeroThresholds :: Maybe Aeson.Value -> Aeson.Value
+  zeroThresholds = \case
+    Just (Aeson.Object obj) -> Aeson.Object $ toJSON (0 :: Int) <$ obj
+    _ -> Aeson.object []
+
+  initialDReps :: Aeson.Value
+  initialDReps =
+    Aeson.object
+      [ Aeson.Key.fromString ("keyHash-" <> drepHash)
+          .= Aeson.object
+            [ "expiry" .= (1000 :: Int)
+            , "deposit" .= (0 :: Int)
+            ]
+      ]
+
+  delegations :: Aeson.Value
+  delegations =
+    Aeson.object
+      [ Aeson.Key.fromString ("keyHash-" <> genesisStakeKeyHash)
+          .= Aeson.object
+            [ "dRep" .= ("drep-keyHash-" <> drepHash)
+            ]
+      ]
+
+  -- NOTE: This needs to match the genesis stake credential in config/genesis-shelley.json.
+  genesisStakeKeyHash :: String
+  genesisStakeKeyHash = "074a515f7f32bf31a4f41c7417a8136e8152bfb42f06d71b389a6896"
+
+upgradePV11ProtocolParameters :: Tracer IO NodeLog -> FilePath -> String -> RunningNode -> IO ()
+upgradePV11ProtocolParameters tracer stateDirectory _drepHash rn@RunningNode{rnNodeSocket, rnNetworkId} = do
+  isAlreadyUpgraded <- hasPV11ProtocolParameters tracer rn
+  unless isAlreadyUpgraded $ do
+    costModelFile <- copyDevnetDataFile "plutus-v3-cost-model-pv11.json"
+    faucetVKey <- copyCredentialFile "faucet.vk"
+    faucetSKey <- copyCredentialFile "faucet.sk"
+    setFileMode faucetSKey ownerReadMode
+
+    let
+      anchorFile = stateDirectory </> "protocol-parameter-upgrade.anchor"
+      actionFile = stateDirectory </> "protocol-parameter-upgrade.action"
+      proposalBodyFile = stateDirectory </> "protocol-parameter-upgrade.txbody"
+      proposalTxFile = stateDirectory </> "protocol-parameter-upgrade.tx"
+      voteFile = stateDirectory </> "protocol-parameter-upgrade.vote"
+      voteBodyFile = stateDirectory </> "protocol-parameter-upgrade-vote.txbody"
+      voteTxFile = stateDirectory </> "protocol-parameter-upgrade-vote.tx"
+      proposalUtxoFile = stateDirectory </> "protocol-parameter-upgrade-utxo.json"
+      voteUtxoFile = stateDirectory </> "protocol-parameter-upgrade-vote-utxo.json"
+
+    BS.writeFile anchorFile mempty
+    anchorHash <- cliOut tracer ["hash", "anchor-data", "--file-text", anchorFile]
+    cli
+      tracer
+      [ "conway"
+      , "governance"
+      , "action"
+      , "create-protocol-parameters-update"
+      , networkFlag rnNetworkId
+      , "--governance-action-deposit"
+      , "0"
+      , "--deposit-return-stake-key-hash"
+      , genesisStakeKeyHash
+      , "--anchor-url"
+      , "https://example.com"
+      , "--anchor-data-hash"
+      , anchorHash
+      , "--cost-model-file"
+      , costModelFile
+      , "--out-file"
+      , actionFile
+      ]
+
+    faucetAddress <- cliOut tracer $ ["conway", "address", "build", "--payment-verification-key-file", faucetVKey] <> networkMagicArgs rnNetworkId
+    cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", faucetAddress, "--out-file", proposalUtxoFile]
+    (proposalTxIn, proposalLovelace) <- readSingleLovelaceUtxo proposalUtxoFile
+    let proposalFee = 1_000_000
+    cli
+      tracer
+      [ "conway"
+      , "transaction"
+      , "build-raw"
+      , "--tx-in"
+      , proposalTxIn
+      , "--tx-out"
+      , faucetAddress <> "+" <> show (proposalLovelace - proposalFee)
+      , "--fee"
+      , show proposalFee
+      , "--proposal-file"
+      , actionFile
+      , "--out-file"
+      , proposalBodyFile
+      ]
+    cli tracer $ ["conway", "transaction", "sign", "--tx-body-file", proposalBodyFile, "--signing-key-file", faucetSKey] <> networkMagicArgs rnNetworkId <> ["--out-file", proposalTxFile]
+    proposalTxId <- cliOut tracer ["conway", "transaction", "txid", "--tx-file", proposalTxFile, "--output-text"]
+    cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", proposalTxFile]
+
+    void $ waitForTxOutput tracer rn faucetAddress proposalTxId proposalUtxoFile
+
+    cli
+      tracer
+      [ "conway"
+      , "governance"
+      , "vote"
+      , "create"
+      , "--yes"
+      , "--governance-action-tx-id"
+      , proposalTxId
+      , "--governance-action-index"
+      , "0"
+      , "--drep-verification-key-file"
+      , stateDirectory </> "drep.vkey"
+      , "--out-file"
+      , voteFile
+      ]
+
+    cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", faucetAddress, "--out-file", voteUtxoFile]
+    (voteTxIn, voteLovelace) <- readSingleLovelaceUtxo voteUtxoFile
+    let voteFee = 1_000_000
+    cli
+      tracer
+      [ "conway"
+      , "transaction"
+      , "build-raw"
+      , "--tx-in"
+      , voteTxIn
+      , "--tx-out"
+      , faucetAddress <> "+" <> show (voteLovelace - voteFee)
+      , "--fee"
+      , show voteFee
+      , "--vote-file"
+      , voteFile
+      , "--out-file"
+      , voteBodyFile
+      ]
+    cli tracer $ ["conway", "transaction", "sign", "--tx-body-file", voteBodyFile, "--signing-key-file", faucetSKey, "--signing-key-file", stateDirectory </> "drep.skey"] <> networkMagicArgs rnNetworkId <> ["--out-file", voteTxFile]
+    voteTxId <- cliOut tracer ["conway", "transaction", "txid", "--tx-file", voteTxFile, "--output-text"]
+    cli tracer $ ["conway", "transaction", "submit", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--tx-file", voteTxFile]
+    void $ waitForTxOutput tracer rn faucetAddress voteTxId voteUtxoFile
+    waitForPV11ProtocolParameters tracer rn
+ where
+  genesisStakeKeyHash :: String
+  genesisStakeKeyHash = "074a515f7f32bf31a4f41c7417a8136e8152bfb42f06d71b389a6896"
+
+  copyDevnetDataFile file = do
+    let destination = stateDirectory </> file
+    readConfigFile ("devnet" </> file) >>= BS.writeFile destination
+    pure destination
+
+  copyCredentialFile file = do
+    let destination = stateDirectory </> file
+    readConfigFile ("credentials" </> file) >>= BS.writeFile destination
+    pure destination
+
+hasPV11ProtocolParameters :: Tracer IO NodeLog -> RunningNode -> IO Bool
+hasPV11ProtocolParameters tracer RunningNode{rnNodeSocket, rnNetworkId} = do
+  let protocolParametersFile = rnNodeSocket <> ".protocol-parameters.json"
+  cli tracer $ ["conway", "query", "protocol-parameters", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--out-file", protocolParametersFile]
+  (== 350) <$> plutusV3CostModelLength protocolParametersFile
+
+waitForPV11ProtocolParameters :: Tracer IO NodeLog -> RunningNode -> IO ()
+waitForPV11ProtocolParameters tracer rn@RunningNode{rnNodeSocket} = go AwaitRatification (180 :: Int)
+ where
+  protocolParametersFile = rnNodeSocket <> ".protocol-parameters.json"
+  govStateFile = rnNodeSocket <> ".gov-state.json"
+
+  go phase 0 = do
+    status <- queryPV11ProtocolParameterStatus tracer rn protocolParametersFile
+    writeGovStateSnapshot tracer rn govStateFile
+    govStatus <- pv11GovernanceStateStatus govStateFile
+    case (phase, pv11UpgradeEnactedForNextEpoch govStatus) of
+      (AwaitRatification, True) -> do
+        traceWith tracer $
+          MsgCLIStatus
+            "waitForPV11ProtocolParameters"
+            "PV11 protocol parameters are ratified and awaiting epoch-boundary enactment"
+        go AwaitEpochBoundary 360
+      _ ->
+        failure $
+          "waitForPV11ProtocolParameters: PlutusV3 cost model was not upgraded; "
+            <> pv11StatusMessage status
+            <> "; "
+            <> pv11GovernanceStateStatusMessage govStatus
+            <> "; protocol parameters: "
+            <> protocolParametersFile
+            <> "; governance state: "
+            <> govStateFile
+  go phase n = do
+    status@(blockNo, _, _, len) <- queryPV11ProtocolParameterStatus tracer rn protocolParametersFile
+    if len == 350
+      then pure ()
+      else do
+        when (n `mod` 10 == 0) $
+          traceWith tracer $
+            MsgCLIStatus "waitForPV11ProtocolParameters" (Text.pack $ pv11StatusMessage status)
+        void $ waitForNextBlock' rn blockNo
+        go phase (n - 1)
+
+data PV11WaitPhase
+  = AwaitRatification
+  | AwaitEpochBoundary
+  deriving stock (Eq, Show)
+
+queryPV11ProtocolParameterStatus :: Tracer IO NodeLog -> RunningNode -> FilePath -> IO (C.BlockNo, C.SlotNo, C.EpochNo, Int)
+queryPV11ProtocolParameterStatus tracer rn@RunningNode{rnNodeSocket, rnNetworkId, rnConnectInfo} protocolParametersFile = do
+  cli tracer $ ["conway", "query", "protocol-parameters", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--out-file", protocolParametersFile]
+  blockNo <- waitForBlock rn
+  (slotNo, _) <- Q.queryTipSlotNo rnConnectInfo
+  epochNo <- Q.queryEpoch rnConnectInfo
+  len <- plutusV3CostModelLength protocolParametersFile
+  pure (blockNo, slotNo, epochNo, len)
+
+pv11StatusMessage :: (C.BlockNo, C.SlotNo, C.EpochNo, Int) -> String
+pv11StatusMessage (blockNo, slotNo, epochNo, len) =
+  "observed PlutusV3 cost model length "
+    <> show len
+    <> " at block "
+    <> show blockNo
+    <> ", slot "
+    <> show slotNo
+    <> ", epoch "
+    <> show epochNo
+
+writeGovStateSnapshot :: Tracer IO NodeLog -> RunningNode -> FilePath -> IO ()
+writeGovStateSnapshot tracer RunningNode{rnNodeSocket, rnNetworkId} govStateFile =
+  (cli tracer $ ["conway", "query", "gov-state", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--out-file", govStateFile])
+    `catch` ignoreCliFailure
+ where
+  ignoreCliFailure :: SomeException -> IO ()
+  ignoreCliFailure _ = pure ()
+
+data PV11GovernanceStateStatus
+  = PV11GovernanceStateStatus
+  { pv11FuturePParamsLength :: !Int
+  , pv11NextEnactStateLength :: !Int
+  , pv11EnactedGovActions :: !Int
+  , pv11Proposals :: !Int
+  }
+  deriving stock (Eq, Show)
+
+pv11UpgradeEnactedForNextEpoch :: PV11GovernanceStateStatus -> Bool
+pv11UpgradeEnactedForNextEpoch PV11GovernanceStateStatus{pv11FuturePParamsLength, pv11NextEnactStateLength} =
+  pv11FuturePParamsLength == 350 || pv11NextEnactStateLength == 350
+
+pv11GovernanceStateStatusMessage :: PV11GovernanceStateStatus -> String
+pv11GovernanceStateStatusMessage PV11GovernanceStateStatus{pv11FuturePParamsLength, pv11NextEnactStateLength, pv11EnactedGovActions, pv11Proposals} =
+  "governance state has "
+    <> show pv11Proposals
+    <> " proposal(s), "
+    <> show pv11EnactedGovActions
+    <> " enacted action(s), future PlutusV3 length "
+    <> show pv11FuturePParamsLength
+    <> ", next enact-state PlutusV3 length "
+    <> show pv11NextEnactStateLength
+
+pv11GovernanceStateStatus :: FilePath -> IO PV11GovernanceStateStatus
+pv11GovernanceStateStatus file = do
+  value <- unsafeDecodeJsonFile file
+  pure $
+    PV11GovernanceStateStatus
+      { pv11FuturePParamsLength = plutusV3CostModelLengthAt ["futurePParams", "contents"] value
+      , pv11NextEnactStateLength = plutusV3CostModelLengthAt ["nextRatifyState", "nextEnactState", "curPParams"] value
+      , pv11EnactedGovActions = arrayLengthAt ["nextRatifyState", "enactedGovActions"] value
+      , pv11Proposals = arrayLengthAt ["proposals"] value
+      }
+
+plutusV3CostModelLengthAt :: [Aeson.Key] -> Aeson.Value -> Int
+plutusV3CostModelLengthAt path value =
+  case lookupJsonPath (path <> ["costModels", "PlutusV3"]) value of
+    Just (Aeson.Array plutusV3) -> length plutusV3
+    _ -> 0
+
+arrayLengthAt :: [Aeson.Key] -> Aeson.Value -> Int
+arrayLengthAt path value =
+  case lookupJsonPath path value of
+    Just (Aeson.Array xs) -> length xs
+    _ -> 0
+
+lookupJsonPath :: [Aeson.Key] -> Aeson.Value -> Maybe Aeson.Value
+lookupJsonPath [] value = Just value
+lookupJsonPath (key : rest) (Aeson.Object obj) = Aeson.KeyMap.lookup key obj >>= lookupJsonPath rest
+lookupJsonPath _ _ = Nothing
+
+waitForTxOutput :: Tracer IO NodeLog -> RunningNode -> String -> String -> FilePath -> IO C.BlockNo
+waitForTxOutput tracer rn@RunningNode{rnNodeSocket, rnNetworkId} address txId utxoFile = do
+  startBlock <- waitForBlock rn
+  go startBlock (120 :: Int)
+ where
+  go lastBlock 0 =
+    failure $
+      "waitForTxOutput: transaction "
+        <> txId
+        <> " was not observed in UTxO at address "
+        <> address
+        <> " after block "
+        <> show lastBlock
+  go lastBlock n = do
+    cli tracer $ ["conway", "query", "utxo", "--socket-path", rnNodeSocket] <> networkMagicArgs rnNetworkId <> ["--address", address, "--out-file", utxoFile]
+    seen <- utxoContainsTxId utxoFile txId
+    if seen
+      then pure lastBlock
+      else do
+        nextBlock <- waitForNextBlock' rn lastBlock
+        go nextBlock (n - 1)
+
+utxoContainsTxId :: FilePath -> String -> IO Bool
+utxoContainsTxId file txId = do
+  value <- unsafeDecodeJsonFile file
+  case value of
+    Aeson.Object utxos ->
+      pure $
+        any
+          (Text.isPrefixOf (Text.pack txId <> "#") . Aeson.Key.toText . fst)
+          (Aeson.KeyMap.toList utxos)
+    _ -> pure False
+
+plutusV3CostModelLength :: FilePath -> IO Int
+plutusV3CostModelLength file = do
+  value <- unsafeDecodeJsonFile file
+  case value of
+    Aeson.Object obj
+      | Just (Aeson.Object costModels) <- Aeson.KeyMap.lookup "costModels" obj
+      , Just (Aeson.Array plutusV3) <- Aeson.KeyMap.lookup "PlutusV3" costModels ->
+          pure (length plutusV3)
+    _ -> pure 0
+
+readSingleLovelaceUtxo :: FilePath -> IO (String, Integer)
+readSingleLovelaceUtxo file = do
+  value <- unsafeDecodeJsonFile file
+  case value of
+    Aeson.Object utxos
+      | [(txIn, Aeson.Object utxo)] <- Aeson.KeyMap.toList utxos
+      , Just (Aeson.Object valueObj) <- Aeson.KeyMap.lookup "value" utxo
+      , Just (Aeson.Number lovelaceScientific) <- Aeson.KeyMap.lookup "lovelace" valueObj
+      , Just (lovelace :: Int64) <- toBoundedInteger lovelaceScientific ->
+          pure (Text.unpack $ Aeson.Key.toText txIn, fromIntegral lovelace)
+    _ -> failure $ "readSingleLovelaceUtxo: unexpected UTxO JSON in " <> file
+
+cli :: Tracer IO NodeLog -> [String] -> IO ()
+cli tracer args = void (cliOut tracer args)
+
+cliOut :: Tracer IO NodeLog -> [String] -> IO String
+cliOut tracer args = do
+  traceWith tracer $ MsgCLI (Text.pack <$> ("cardano-cli" : args))
+  trim <$> readProcess "cardano-cli" args ""
+
+networkFlag :: NetworkId -> String
+networkFlag = \case
+  C.Mainnet -> "--mainnet"
+  C.Testnet{} -> "--testnet"
+
+networkMagicArgs :: NetworkId -> [String]
+networkMagicArgs = \case
+  C.Mainnet -> ["--mainnet"]
+  C.Testnet (C.NetworkMagic magic) -> ["--testnet-magic", show magic]
+
+trim :: String -> String
+trim = Text.unpack . Text.strip . Text.pack
 
 writeTopology :: [Port] -> FilePath -> CardanoNodeArgs -> IO ()
 writeTopology peers stateDirectory args =
@@ -433,6 +879,72 @@ copyAndChangeJSONFile modification target =
     . either (error . (<>) "Failed to decode json: ") modification
     . Aeson.eitherDecode
     . BS.fromStrict
+
+addPV11CostModel :: BS.ByteString -> Aeson.Value -> Aeson.Value
+addPV11CostModel pv11CostModelBytes genesis =
+  case Aeson.eitherDecodeStrict pv11CostModelBytes of
+    Right (Aeson.Object pv11CostModel) ->
+      case Aeson.KeyMap.lookup "PlutusV3" pv11CostModel of
+        Just plutusV3 ->
+          withObject
+            ( \genesisObject ->
+                let costModels =
+                      withObject
+                        (Aeson.KeyMap.insert "PlutusV3" plutusV3)
+                        (fromMaybe (Aeson.object []) (Aeson.KeyMap.lookup "costModels" genesisObject))
+                 in Aeson.KeyMap.insert "costModels" costModels genesisObject
+            )
+            genesis
+        _ -> genesis
+    _ -> genesis
+
+copyAndChangeShelleyGenesisFile
+  :: (FromJSON a, ToJSON a)
+  => (a -> a)
+  -> FilePath
+  -> BS.ByteString
+  -> IO ()
+copyAndChangeShelleyGenesisFile modification target sourceBytes =
+  let sourceValue =
+        either (error . (<>) "Failed to decode json: ") id $
+          Aeson.eitherDecode (BS.fromStrict sourceBytes)
+   in BS.writeFile
+        target
+        . BS.toStrict
+        . Aeson.encode
+        . preserveShelleyProtocolVersion sourceValue
+        . toJSON
+        . either (error . (<>) "Failed to decode json: ") modification
+        . Aeson.eitherDecode
+        . BS.fromStrict
+        $ sourceBytes
+
+preserveShelleyProtocolVersion :: Aeson.Value -> Aeson.Value -> Aeson.Value
+preserveShelleyProtocolVersion sourceValue targetValue =
+  case shelleyProtocolVersion sourceValue of
+    Nothing -> targetValue
+    Just protocolVersion ->
+      withObject
+        ( \targetObject ->
+            case Aeson.KeyMap.lookup "protocolParams" targetObject of
+              Nothing -> targetObject
+              Just protocolParams ->
+                Aeson.KeyMap.insert
+                  "protocolParams"
+                  ( withObject
+                      (Aeson.KeyMap.insert "protocolVersion" protocolVersion)
+                      protocolParams
+                  )
+                  targetObject
+        )
+        targetValue
+
+shelleyProtocolVersion :: Aeson.Value -> Maybe Aeson.Value
+shelleyProtocolVersion = \case
+  Aeson.Object sourceObject -> do
+    Aeson.Object protocolParams <- Aeson.KeyMap.lookup "protocolParams" sourceObject
+    Aeson.KeyMap.lookup "protocolVersion" protocolParams
+  _ -> Nothing
 
 -- | Re-generate configuration and genesis files with fresh system start times.
 refreshSystemStart

@@ -25,6 +25,7 @@ data-files:
   config/devnet/genesis-shelley.json
   config/devnet/kes.skey
   config/devnet/opcert.cert
+  config/devnet/plutus-v3-cost-model-pv11.json
   config/devnet/vrf.skey
 
 common lang
@@ -89,6 +90,7 @@ library
     , mtl
     , prettyprinter
     , process
+    , scientific
     , stm
     , temporary
     , text
