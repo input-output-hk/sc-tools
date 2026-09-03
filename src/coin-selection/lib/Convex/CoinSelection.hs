@@ -425,9 +425,37 @@ balanceTransactionBody
             & addChangeOutput changeOutputBalance
 
     finalTxBody <- balancingError . first C.TxBodyError $ C.createTransactionBody C.shelleyBasedEra finalBodyContent
-    balances <- maybe (throwing_ _ComputeBalanceChangeError) pure (balanceChanges csiUtxo finalBodyContent)
 
-    let finalBody = C.BalancedTxBody finalBodyContent finalTxBody changeOutputBalance txFee
+    -- The actual change output can be larger than the placeholder used for the
+    -- initial fee calculation when it carries native assets.
+    let correctedTxFee = C.calculateMinTxFee C.shelleyBasedEra (C.unLedgerProtocolParameters protocolParams) csiUtxo finalTxBody numWits <> Coin 1_000
+        feeDelta = C.lovelaceToQuantity correctedTxFee - C.lovelaceToQuantity txFee
+        (correctedReturnCollateral, correctedTotalCollateral) =
+          C.babbageEraOnwardsConstraints (C.babbageBasedEra @era) $
+            C.calcReturnAndTotalCollateral
+              C.babbageBasedEra
+              correctedTxFee
+              (C.unLedgerProtocolParameters protocolParams)
+              (C.txInsCollateral txbodycontent1)
+              (C.txReturnCollateral txbodycontent1)
+              (C.txTotalCollateral txbodycontent1)
+              changeAddr
+              (C.toMaryValue collateralValue)
+        correctedChangeOutput =
+          changeOutputBalance
+            & L._TxOut . _2 . L._TxOutValue . L._Value . at C.AdaAssetId <>~ (Just $ negate feeDelta)
+        correctedBodyContent =
+          txbodycontent1
+            { C.txReturnCollateral = correctedReturnCollateral
+            , C.txTotalCollateral = correctedTotalCollateral
+            }
+            & set L.txFee correctedTxFee
+            & addChangeOutput correctedChangeOutput
+
+    correctedTxBody <- balancingError . first C.TxBodyError $ C.createTransactionBody C.shelleyBasedEra correctedBodyContent
+    balances <- maybe (throwing_ _ComputeBalanceChangeError) pure (balanceChanges csiUtxo correctedBodyContent)
+
+    let finalBody = C.BalancedTxBody correctedBodyContent correctedTxBody correctedChangeOutput correctedTxFee
     return (finalBody, balances)
 
 checkMinUTxOValue
